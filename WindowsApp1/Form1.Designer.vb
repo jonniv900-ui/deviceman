@@ -49,6 +49,8 @@ Partial Class Form1
         Me.LVdetalhes = New System.Windows.Forms.ListView()
         Me.ImprimirToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.SairToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.RelatórioCompletoToolStripMenuItem1 = New System.Windows.Forms.ToolStripMenuItem()
+        Me.SomentePáginaSelecionadaToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.StatusStrip1.SuspendLayout()
         Me.MenuStrip1.SuspendLayout()
         Me.ToolStrip1.SuspendLayout()
@@ -92,19 +94,19 @@ Partial Class Form1
         '
         Me.RelatóriosToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.CompletoToolStripMenuItem, Me.TelaSelecionadaToolStripMenuItem})
         Me.RelatóriosToolStripMenuItem.Name = "RelatóriosToolStripMenuItem"
-        Me.RelatóriosToolStripMenuItem.Size = New System.Drawing.Size(126, 22)
+        Me.RelatóriosToolStripMenuItem.Size = New System.Drawing.Size(180, 22)
         Me.RelatóriosToolStripMenuItem.Text = "Relatórios"
         '
         'CompletoToolStripMenuItem
         '
         Me.CompletoToolStripMenuItem.Name = "CompletoToolStripMenuItem"
-        Me.CompletoToolStripMenuItem.Size = New System.Drawing.Size(161, 22)
+        Me.CompletoToolStripMenuItem.Size = New System.Drawing.Size(180, 22)
         Me.CompletoToolStripMenuItem.Text = "Completo"
         '
         'TelaSelecionadaToolStripMenuItem
         '
         Me.TelaSelecionadaToolStripMenuItem.Name = "TelaSelecionadaToolStripMenuItem"
-        Me.TelaSelecionadaToolStripMenuItem.Size = New System.Drawing.Size(161, 22)
+        Me.TelaSelecionadaToolStripMenuItem.Size = New System.Drawing.Size(180, 22)
         Me.TelaSelecionadaToolStripMenuItem.Text = "Tela Selecionada"
         '
         'ExibirToolStripMenuItem
@@ -259,6 +261,7 @@ Partial Class Form1
         '
         'ImprimirToolStripMenuItem
         '
+        Me.ImprimirToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.RelatórioCompletoToolStripMenuItem1, Me.SomentePáginaSelecionadaToolStripMenuItem})
         Me.ImprimirToolStripMenuItem.Name = "ImprimirToolStripMenuItem"
         Me.ImprimirToolStripMenuItem.Size = New System.Drawing.Size(180, 22)
         Me.ImprimirToolStripMenuItem.Text = "&Imprimir"
@@ -268,6 +271,18 @@ Partial Class Form1
         Me.SairToolStripMenuItem.Name = "SairToolStripMenuItem"
         Me.SairToolStripMenuItem.Size = New System.Drawing.Size(180, 22)
         Me.SairToolStripMenuItem.Text = "&Sair"
+        '
+        'RelatórioCompletoToolStripMenuItem1
+        '
+        Me.RelatórioCompletoToolStripMenuItem1.Name = "RelatórioCompletoToolStripMenuItem1"
+        Me.RelatórioCompletoToolStripMenuItem1.Size = New System.Drawing.Size(225, 22)
+        Me.RelatórioCompletoToolStripMenuItem1.Text = "Relatório completo"
+        '
+        'SomentePáginaSelecionadaToolStripMenuItem
+        '
+        Me.SomentePáginaSelecionadaToolStripMenuItem.Name = "SomentePáginaSelecionadaToolStripMenuItem"
+        Me.SomentePáginaSelecionadaToolStripMenuItem.Size = New System.Drawing.Size(225, 22)
+        Me.SomentePáginaSelecionadaToolStripMenuItem.Text = "Somente página selecionada"
         '
         'Form1
         '
@@ -321,4 +336,6 @@ Partial Class Form1
     Friend WithEvents TelaSelecionadaToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents ImprimirToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents SairToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents RelatórioCompletoToolStripMenuItem1 As ToolStripMenuItem
+    Friend WithEvents SomentePáginaSelecionadaToolStripMenuItem As ToolStripMenuItem
 End Class

@@ -1079,17 +1079,44 @@ Public Class Form1
         Next
 
     End Sub
-    Public Sub ExportReport(completo As Boolean)
-        ' Criar SaveFileDialog
-        Dim sfd As New SaveFileDialog()
-        sfd.Filter = "Arquivo HTML|*.html"
-        sfd.FileName = "Relatorio.html"
+    Public Sub ExportReport(completo As Boolean, Optional imprimir As Boolean = False)
 
-        If sfd.ShowDialog() <> DialogResult.OK Then Exit Sub
+        ' ===== Aviso se for impressão completa =====
+        If imprimir AndAlso completo Then
+
+            Dim respAviso = MessageBox.Show(
+            "O relatório COMPLETO pode consumir várias folhas de papel." & vbCrLf & vbCrLf &
+            "Recomendamos imprimir apenas o RESUMO." & vbCrLf & vbCrLf &
+            "Sim = Imprimir relatório completo" & vbCrLf &
+            "Não = Imprimir apenas o resumo" & vbCrLf &
+            "Cancelar = Cancelar impressão",
+            "Aviso de Impressão",
+            MessageBoxButtons.YesNoCancel,
+            MessageBoxIcon.Warning
+        )
+
+            If respAviso = DialogResult.Cancel Then Exit Sub
+            If respAviso = DialogResult.No Then completo = False
+            ' Yes mantém completo = True
+        End If
+
+        ' ===== Definir caminho do arquivo =====
+        Dim filePath As String
+
+        If imprimir Then
+            filePath = Path.Combine(Path.GetTempPath(), "RelatorioSistema.html")
+        Else
+            Dim sfd As New SaveFileDialog()
+            sfd.Filter = "Arquivo HTML|*.html"
+            sfd.FileName = "Relatorio.html"
+
+            If sfd.ShowDialog() <> DialogResult.OK Then Exit Sub
+            filePath = sfd.FileName
+        End If
 
         Dim sb As New StringBuilder()
 
-        ' ===== Cabeçalho HTML com Bootstrap e Bootstrap Icons =====
+        ' ===== Cabeçalho HTML com Bootstrap =====
         sb.AppendLine("<!DOCTYPE html>")
         sb.AppendLine("<html lang=""pt-br"">")
         sb.AppendLine("<head>")
@@ -1122,24 +1149,34 @@ Public Class Form1
         sb.AppendLine("</body>")
         sb.AppendLine("</html>")
 
-        ' Salvar arquivo
-        File.WriteAllText(sfd.FileName, sb.ToString(), Encoding.UTF8)
+        ' ===== Salvar arquivo =====
+        File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8)
 
-        Dim resp = MessageBox.Show(
-      $"Relatório salvo em:{vbCrLf}{sfd.FileName}{vbCrLf}{vbCrLf}Deseja abrir agora?",
-      "Exportação concluída",
-      MessageBoxButtons.YesNo,
-      MessageBoxIcon.Information
-  )
-
-        If resp = DialogResult.Yes Then
+        ' ===== Comportamento pós-exportação =====
+        If imprimir Then
+            ' Abre no navegador para o usuário imprimir
             Process.Start(New ProcessStartInfo With {
-                .FileName = sfd.FileName,
+            .FileName = filePath,
+            .UseShellExecute = True
+        })
+        Else
+            Dim resp = MessageBox.Show(
+            $"Relatório salvo em:{vbCrLf}{filePath}{vbCrLf}{vbCrLf}Deseja abrir agora?",
+            "Exportação concluída",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Information
+        )
+
+            If resp = DialogResult.Yes Then
+                Process.Start(New ProcessStartInfo With {
+                .FileName = filePath,
                 .UseShellExecute = True
             })
+            End If
         End If
 
     End Sub
+
 
 
     Private Function BuildHtmlMetadata() As String
@@ -1238,12 +1275,12 @@ Public Class Form1
 
 
     Private Sub RelatórioCompletoToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles RelatórioCompletoToolStripMenuItem.Click
-        ExportReport(True)
+        ExportReport(True, False)
 
     End Sub
 
     Private Sub SomenteTelaSelecionadaToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles SomenteTelaSelecionadaToolStripMenuItem.Click
-        ExportReport(False)
+        ExportReport(False, False)
 
     End Sub
 
@@ -1358,4 +1395,19 @@ Public Class Form1
 
     End Function
 
+    Private Sub RelatórioCompletoToolStripMenuItem1_Click(sender As Object, e As EventArgs) Handles RelatórioCompletoToolStripMenuItem1.Click
+        ExportReport(True, True)
+    End Sub
+
+    Private Sub SomentePáginaSelecionadaToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles SomentePáginaSelecionadaToolStripMenuItem.Click
+        ExportReport(False, True)
+    End Sub
+
+    Private Sub CompletoToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles CompletoToolStripMenuItem.Click
+        ExportReport(True, False)
+    End Sub
+
+    Private Sub TelaSelecionadaToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles TelaSelecionadaToolStripMenuItem.Click
+        ExportReport(False, False)
+    End Sub
 End Class
