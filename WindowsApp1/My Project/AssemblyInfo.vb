@@ -8,10 +8,10 @@ Imports System.Runtime.InteropServices
 
 ' Revise os valores dos atributos do assembly
 
-<Assembly: AssemblyTitle("WindowsApp1")>
-<Assembly: AssemblyDescription("")>
-<Assembly: AssemblyCompany("")>
-<Assembly: AssemblyProduct("WindowsApp1")>
+<Assembly: AssemblyTitle("Systeminspector")>
+<Assembly: AssemblyDescription("Lista dispositivos, drivers e atualizações do sistema de forma fácil")>
+<Assembly: AssemblyCompany("Wtec Sistemas")>
+<Assembly: AssemblyProduct("Systeminspector")>
 <Assembly: AssemblyCopyright("Copyright ©  2025")>
 <Assembly: AssemblyTrademark("")>
 

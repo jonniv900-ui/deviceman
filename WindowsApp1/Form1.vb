@@ -4,6 +4,10 @@ Imports System.Management
 Imports System.Text
 Imports System.Runtime.InteropServices
 Imports System.Drawing.Icon
+Imports System.Diagnostics
+Imports System.Linq
+Imports System.Drawing
+
 
 
 
@@ -25,6 +29,8 @@ Public Class Form1
     Private Const SHGSI_ICON As UInteger = &H100
     Private Const SHGSI_SMALLICON As UInteger = &H1
     Private Const SHGSI_LARGEICON As UInteger = &H0
+    Private statusTimer As Timer
+
     <StructLayout(LayoutKind.Sequential, CharSet:=CharSet.Unicode)>
     Private Structure SHSTOCKICONINFO
         Public cbSize As UInteger
@@ -33,7 +39,10 @@ Public Class Form1
         <MarshalAs(UnmanagedType.ByValTStr, SizeConst:=260)>
         Public szPath As String
     End Structure
-    <DllImport("shell32.dll")>
+    '<DllImport("shell32.dll")>
+    <DllImport("user32.dll")>
+    Private Shared Function DestroyIcon(hIcon As IntPtr) As Boolean
+    End Function
     Private Shared Function SHGetStockIconInfo(
     ByVal siid As SHSTOCKICONID,
     ByVal uFlags As UInteger,
@@ -56,10 +65,10 @@ Public Class Form1
         UpdateStatusBar()
 
         ' Timer para atualizar a cada 1s
-        Dim t As New Timer()
-        AddHandler t.Tick, Sub() UpdateStatusBar()
-        t.Interval = 1000
-        t.Start()
+        statusTimer = New Timer()
+        statusTimer.Interval = 1000
+        AddHandler statusTimer.Tick, AddressOf UpdateStatusBar
+        statusTimer.Start()
     End Sub
 
     Private Sub UpdateStatusBar()
@@ -110,8 +119,11 @@ Public Class Form1
         SHGetStockIconInfo(id, flags, info)
 
         If info.hIcon = IntPtr.Zero Then Return Nothing
+        Dim ico = Icon.FromHandle(info.hIcon)
+        Dim clone = CType(ico.Clone(), Icon)
+        DestroyIcon(info.hIcon)
+        Return clone
 
-        Return Icon.FromHandle(info.hIcon)
     End Function
 
 
@@ -244,28 +256,52 @@ Public Class Form1
         pnpRoot.ImageKey = "pnp"
         pnpRoot.SelectedImageKey = "pnp"
 
-        Dim classes As New Dictionary(Of String, TreeNode)
+        Dim barramentos As New Dictionary(Of String, TreeNode)
 
         For Each dev As ManagementObject In New ManagementObjectSearcher(
-        "SELECT * FROM Win32_PnPEntity").Get()
+    "SELECT * FROM Win32_PnPEntity WHERE Present = TRUE AND PNPDeviceID IS NOT NULL").Get()
 
-            Dim classe As String = WmiStr(dev, "PNPClass", "Outros")
+            Dim pnpId As String = WmiStr(dev, "PNPDeviceID")
+            If Not IsRealPnPDevice(pnpId) Then Continue For
 
-            If Not classes.ContainsKey(classe) Then
-                Dim classNode = pnpRoot.Nodes.Add(classe)
-                classNode.ImageKey = "device"
-                classNode.SelectedImageKey = "device"
-                classes(classe) = classNode
+            Dim nome As String = WmiStr(dev, "Name", "Dispositivo desconhecido")
+            If String.IsNullOrEmpty(nome) Then Continue For
+
+            Dim barramento As String = GetBusFromPNP(pnpId)
+
+            ' cria nó do barramento se não existir
+            If Not barramentos.ContainsKey(barramento) Then
+                Dim busNode = pnpRoot.Nodes.Add(barramento)
+                busNode.Tag = "PNP_BUS"
+
+                Dim iconKey = GetBusIconKey(barramento)
+                busNode.ImageKey = iconKey
+                busNode.SelectedImageKey = iconKey
+
+                barramentos(barramento) = busNode
             End If
 
-            Dim nome As String = WmiStr(dev, "Name", "Dispositivo sem nome")
-            Dim deviceId As String = WmiStr(dev, "DeviceID")
+            ' adiciona o dispositivo
+            Dim estado As String = GetDeviceState(dev)
 
-            Dim n = classes(classe).Nodes.Add(nome)
-            n.Tag = deviceId
-            n.ImageKey = "device"
-            n.SelectedImageKey = "device"
+            Dim devNode = barramentos(barramento).Nodes.Add(nome)
+            devNode.Tag = pnpId
+
+            ' ícone base do dispositivo (ex: barramento ou genérico)
+            Dim baseIcon As String = GetBusIconKey(barramento)
+            devNode.ImageKey = baseIcon
+            devNode.SelectedImageKey = baseIcon
+
+            ' aplica ícone de estado SOMENTE se não for OK
+            Dim stateIcon As String = GetStateIconKey(estado)
+            If Not String.IsNullOrEmpty(stateIcon) Then
+                devNode.ImageKey = stateIcon
+                devNode.SelectedImageKey = stateIcon
+            End If
+
+
         Next
+
 
         rootResumo.Expand()
         rootDisp.Expand()
@@ -925,7 +961,7 @@ Public Class Form1
         For Each m In New ManagementObjectSearcher(
         "SELECT * FROM Win32_PhysicalMemory").Get()
 
-            If m("BankLabel").ToString() = bank Then
+            If WmiStr(m, "BankLabel") = bank Then
                 AddDetail("Slot", bank)
                 AddDetail("Capacidade", FormatSize(CLng(m("Capacity"))))
                 AddDetail("Tipo", MemoryType(CInt(m("SMBIOSMemoryType"))))
@@ -1065,6 +1101,10 @@ Public Class Form1
         sb.AppendLine("</head>")
         sb.AppendLine("<body class=""p-3"">")
         sb.AppendLine("<div class=""container"">")
+
+        ' ===== METADADOS =====
+        sb.AppendLine(BuildHtmlMetadata())
+
         sb.AppendLine("<h2 class=""mb-3"">Relatório de Sistema</h2>")
 
         ' ===== Percorrer nodes =====
@@ -1085,9 +1125,45 @@ Public Class Form1
         ' Salvar arquivo
         File.WriteAllText(sfd.FileName, sb.ToString(), Encoding.UTF8)
 
-        MessageBox.Show($"Relatório salvo em:{vbCrLf}{sfd.FileName}", "Exportação concluída", MessageBoxButtons.OK, MessageBoxIcon.Information)
+        Dim resp = MessageBox.Show(
+      $"Relatório salvo em:{vbCrLf}{sfd.FileName}{vbCrLf}{vbCrLf}Deseja abrir agora?",
+      "Exportação concluída",
+      MessageBoxButtons.YesNo,
+      MessageBoxIcon.Information
+  )
+
+        If resp = DialogResult.Yes Then
+            Process.Start(New ProcessStartInfo With {
+                .FileName = sfd.FileName,
+                .UseShellExecute = True
+            })
+        End If
+
     End Sub
 
+
+    Private Function BuildHtmlMetadata() As String
+        Dim sb As New StringBuilder()
+
+        sb.AppendLine("<div class='card mb-4'>")
+        sb.AppendLine("<div class='card-header bg-dark text-white'>")
+        sb.AppendLine("<strong>Relatório Técnico do Sistema</strong>")
+        sb.AppendLine("</div>")
+        sb.AppendLine("<div class='card-body'>")
+
+        sb.AppendLine("<ul class='list-unstyled mb-0'>")
+        sb.AppendLine($"<li><strong>Computador:</strong> {Environment.MachineName}</li>")
+        sb.AppendLine($"<li><strong>Usuário:</strong> {Environment.UserName}</li>")
+        sb.AppendLine($"<li><strong>Sistema Operacional:</strong> {My.Computer.Info.OSFullName}</li>")
+        sb.AppendLine($"<li><strong>Arquitetura:</strong> {If(Environment.Is64BitOperatingSystem, "64-bit", "32-bit")}</li>")
+        sb.AppendLine($"<li><strong>Data/Hora:</strong> {DateTime.Now:dd/MM/yyyy HH:mm:ss}</li>")
+        sb.AppendLine("</ul>")
+
+        sb.AppendLine("</div>")
+        sb.AppendLine("</div>")
+
+        Return sb.ToString()
+    End Function
 
     ' ===== Função recursiva para relatório completo com ícones =====
     Private Sub AppendNodeHtmlFull(node As TreeNode, sb As StringBuilder)
@@ -1190,4 +1266,96 @@ Public Class Form1
         Dim frm As New Global.restoreapp.Form1()
         frm.Show()
     End Sub
+
+    '' Nova parte adicionado 30/12/25
+    Private Function GetBusFromPNP(pnpId As String) As String
+        If String.IsNullOrEmpty(pnpId) Then Return "Outros"
+
+        If pnpId.StartsWith("PCI\", StringComparison.OrdinalIgnoreCase) Then Return "PCI / PCIe"
+        If pnpId.StartsWith("USB\", StringComparison.OrdinalIgnoreCase) Then Return "USB"
+        If pnpId.StartsWith("ACPI\", StringComparison.OrdinalIgnoreCase) Then Return "ACPI"
+        If pnpId.StartsWith("HID\", StringComparison.OrdinalIgnoreCase) Then Return "HID"
+        If pnpId.StartsWith("SCSI\", StringComparison.OrdinalIgnoreCase) Then Return "SCSI"
+        If pnpId.StartsWith("IDE\", StringComparison.OrdinalIgnoreCase) Then Return "IDE / SATA"
+        If pnpId.StartsWith("NVME\", StringComparison.OrdinalIgnoreCase) Then Return "NVMe"
+
+        Return "Outros"
+    End Function
+    Private Function IsRealPnPDevice(pnpId As String) As Boolean
+        If String.IsNullOrEmpty(pnpId) Then Return False
+
+        Dim invalidPrefixes = {
+        "ROOT\",
+        "SWD\",
+        "HTREE\",
+        "LEGACY\",
+        "VMBUS\"
+    }
+
+        For Each prefix In invalidPrefixes
+            If pnpId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) Then
+                Return False
+            End If
+        Next
+
+        ' Dispositivos reais sempre passam por um barramento físico
+        Return True
+    End Function
+    Private Function GetBusIconKey(bus As String) As String
+
+        Select Case bus
+            Case "USB"
+                Return "usb"
+            Case "PCI / PCIe"
+                Return "pci"
+            Case "ACPI"
+                Return "acpi"
+            Case "HID"
+                Return "hid"
+            Case "SCSI"
+                Return "scsi"
+            Case "IDE / SATA"
+                Return "ide"
+            Case "NVMe"
+                Return "nvme"
+            Case Else
+                Return "bus"
+        End Select
+
+    End Function
+
+
+
+    Private Function GetStateIconKey(state As String) As String
+        Select Case state
+            Case "NO_DRIVER"
+                Return "state_nodriver"
+
+            Case "ERROR"
+                Return "state_error"
+
+            Case Else
+                ' OK → não força ícone de estado
+                Return Nothing
+        End Select
+    End Function
+    Private Function GetDeviceState(dev As ManagementObject) As String
+
+        Dim errCode As Integer = WmiInt(dev, "ConfigManagerErrorCode")
+        Dim service As String = WmiStr(dev, "Service")
+
+        ' sem driver
+        If String.IsNullOrEmpty(service) OrElse errCode = 28 Then
+            Return "NO_DRIVER"
+        End If
+
+        ' erro
+        If errCode <> 0 Then
+            Return "ERROR"
+        End If
+
+        Return "OK"
+
+    End Function
+
 End Class

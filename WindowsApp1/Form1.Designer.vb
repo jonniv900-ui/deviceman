@@ -27,10 +27,17 @@ Partial Class Form1
         Me.StatusStrip1 = New System.Windows.Forms.StatusStrip()
         Me.statusbar1 = New System.Windows.Forms.ToolStripStatusLabel()
         Me.MenuStrip1 = New System.Windows.Forms.MenuStrip()
+        Me.ArquivoToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.RelatóriosToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.CompletoToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.TelaSelecionadaToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.ExibirToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.ToolStripMenuItem1 = New System.Windows.Forms.ToolStripMenuItem()
         Me.GerenciadorDeRecursosToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.GerenciadorDeProcessosToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.RestaurarDriversToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.RestaurarDriversToolStripMenuItem1 = New System.Windows.Forms.ToolStripMenuItem()
+        Me.AjudaToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.ToolStrip1 = New System.Windows.Forms.ToolStrip()
         Me.btnExportarHtml = New System.Windows.Forms.ToolStripButton()
         Me.ToolStripDropDownButton1 = New System.Windows.Forms.ToolStripDropDownButton()
@@ -40,7 +47,8 @@ Partial Class Form1
         Me.TVdispositivos = New System.Windows.Forms.TreeView()
         Me.ImageList1 = New System.Windows.Forms.ImageList(Me.components)
         Me.LVdetalhes = New System.Windows.Forms.ListView()
-        Me.RestaurarDriversToolStripMenuItem1 = New System.Windows.Forms.ToolStripMenuItem()
+        Me.ImprimirToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.SairToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.StatusStrip1.SuspendLayout()
         Me.MenuStrip1.SuspendLayout()
         Me.ToolStrip1.SuspendLayout()
@@ -66,19 +74,51 @@ Partial Class Form1
         '
         'MenuStrip1
         '
-        Me.MenuStrip1.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.ToolStripMenuItem1})
+        Me.MenuStrip1.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.ArquivoToolStripMenuItem, Me.ExibirToolStripMenuItem, Me.ToolStripMenuItem1, Me.AjudaToolStripMenuItem})
         Me.MenuStrip1.Location = New System.Drawing.Point(0, 0)
         Me.MenuStrip1.Name = "MenuStrip1"
         Me.MenuStrip1.Size = New System.Drawing.Size(740, 24)
         Me.MenuStrip1.TabIndex = 1
         Me.MenuStrip1.Text = "MenuStrip1"
         '
+        'ArquivoToolStripMenuItem
+        '
+        Me.ArquivoToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.RelatóriosToolStripMenuItem, Me.ImprimirToolStripMenuItem, Me.SairToolStripMenuItem})
+        Me.ArquivoToolStripMenuItem.Name = "ArquivoToolStripMenuItem"
+        Me.ArquivoToolStripMenuItem.Size = New System.Drawing.Size(61, 20)
+        Me.ArquivoToolStripMenuItem.Text = "&Arquivo"
+        '
+        'RelatóriosToolStripMenuItem
+        '
+        Me.RelatóriosToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.CompletoToolStripMenuItem, Me.TelaSelecionadaToolStripMenuItem})
+        Me.RelatóriosToolStripMenuItem.Name = "RelatóriosToolStripMenuItem"
+        Me.RelatóriosToolStripMenuItem.Size = New System.Drawing.Size(126, 22)
+        Me.RelatóriosToolStripMenuItem.Text = "Relatórios"
+        '
+        'CompletoToolStripMenuItem
+        '
+        Me.CompletoToolStripMenuItem.Name = "CompletoToolStripMenuItem"
+        Me.CompletoToolStripMenuItem.Size = New System.Drawing.Size(161, 22)
+        Me.CompletoToolStripMenuItem.Text = "Completo"
+        '
+        'TelaSelecionadaToolStripMenuItem
+        '
+        Me.TelaSelecionadaToolStripMenuItem.Name = "TelaSelecionadaToolStripMenuItem"
+        Me.TelaSelecionadaToolStripMenuItem.Size = New System.Drawing.Size(161, 22)
+        Me.TelaSelecionadaToolStripMenuItem.Text = "Tela Selecionada"
+        '
+        'ExibirToolStripMenuItem
+        '
+        Me.ExibirToolStripMenuItem.Name = "ExibirToolStripMenuItem"
+        Me.ExibirToolStripMenuItem.Size = New System.Drawing.Size(47, 20)
+        Me.ExibirToolStripMenuItem.Text = "&Exibir"
+        '
         'ToolStripMenuItem1
         '
         Me.ToolStripMenuItem1.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.GerenciadorDeRecursosToolStripMenuItem, Me.GerenciadorDeProcessosToolStripMenuItem, Me.RestaurarDriversToolStripMenuItem, Me.RestaurarDriversToolStripMenuItem1})
         Me.ToolStripMenuItem1.Name = "ToolStripMenuItem1"
         Me.ToolStripMenuItem1.Size = New System.Drawing.Size(84, 20)
-        Me.ToolStripMenuItem1.Text = "Ferramentas"
+        Me.ToolStripMenuItem1.Text = "&Ferramentas"
         '
         'GerenciadorDeRecursosToolStripMenuItem
         '
@@ -97,6 +137,18 @@ Partial Class Form1
         Me.RestaurarDriversToolStripMenuItem.Name = "RestaurarDriversToolStripMenuItem"
         Me.RestaurarDriversToolStripMenuItem.Size = New System.Drawing.Size(209, 22)
         Me.RestaurarDriversToolStripMenuItem.Text = "Backup de drivers"
+        '
+        'RestaurarDriversToolStripMenuItem1
+        '
+        Me.RestaurarDriversToolStripMenuItem1.Name = "RestaurarDriversToolStripMenuItem1"
+        Me.RestaurarDriversToolStripMenuItem1.Size = New System.Drawing.Size(209, 22)
+        Me.RestaurarDriversToolStripMenuItem1.Text = "Restaurar drivers"
+        '
+        'AjudaToolStripMenuItem
+        '
+        Me.AjudaToolStripMenuItem.Name = "AjudaToolStripMenuItem"
+        Me.AjudaToolStripMenuItem.Size = New System.Drawing.Size(50, 20)
+        Me.AjudaToolStripMenuItem.Text = "A&juda"
         '
         'ToolStrip1
         '
@@ -184,6 +236,16 @@ Partial Class Form1
         Me.ImageList1.Images.SetKeyName(11, "gpu")
         Me.ImageList1.Images.SetKeyName(12, "network")
         Me.ImageList1.Images.SetKeyName(13, "nic")
+        Me.ImageList1.Images.SetKeyName(14, "IDE")
+        Me.ImageList1.Images.SetKeyName(15, "PCI")
+        Me.ImageList1.Images.SetKeyName(16, "bus")
+        Me.ImageList1.Images.SetKeyName(17, "USB")
+        Me.ImageList1.Images.SetKeyName(18, "setupapi_26.ico")
+        Me.ImageList1.Images.SetKeyName(19, "acpi")
+        Me.ImageList1.Images.SetKeyName(20, "nvme")
+        Me.ImageList1.Images.SetKeyName(21, "hid")
+        Me.ImageList1.Images.SetKeyName(22, "state_error")
+        Me.ImageList1.Images.SetKeyName(23, "state_nodriver")
         '
         'LVdetalhes
         '
@@ -195,11 +257,17 @@ Partial Class Form1
         Me.LVdetalhes.TabIndex = 0
         Me.LVdetalhes.UseCompatibleStateImageBehavior = False
         '
-        'RestaurarDriversToolStripMenuItem1
+        'ImprimirToolStripMenuItem
         '
-        Me.RestaurarDriversToolStripMenuItem1.Name = "RestaurarDriversToolStripMenuItem1"
-        Me.RestaurarDriversToolStripMenuItem1.Size = New System.Drawing.Size(209, 22)
-        Me.RestaurarDriversToolStripMenuItem1.Text = "Restaurar drivers"
+        Me.ImprimirToolStripMenuItem.Name = "ImprimirToolStripMenuItem"
+        Me.ImprimirToolStripMenuItem.Size = New System.Drawing.Size(180, 22)
+        Me.ImprimirToolStripMenuItem.Text = "&Imprimir"
+        '
+        'SairToolStripMenuItem
+        '
+        Me.SairToolStripMenuItem.Name = "SairToolStripMenuItem"
+        Me.SairToolStripMenuItem.Size = New System.Drawing.Size(180, 22)
+        Me.SairToolStripMenuItem.Text = "&Sair"
         '
         'Form1
         '
@@ -245,4 +313,12 @@ Partial Class Form1
     Friend WithEvents GerenciadorDeProcessosToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents RestaurarDriversToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents RestaurarDriversToolStripMenuItem1 As ToolStripMenuItem
+    Friend WithEvents ArquivoToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents ExibirToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents AjudaToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents RelatóriosToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents CompletoToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents TelaSelecionadaToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents ImprimirToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents SairToolStripMenuItem As ToolStripMenuItem
 End Class
