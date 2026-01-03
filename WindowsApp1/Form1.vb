@@ -1080,32 +1080,29 @@ Public Class Form1
 
     End Sub
     Public Sub ExportReport(completo As Boolean, Optional imprimir As Boolean = False)
+        ' Detecta se o aplicativo foi iniciado com o parâmetro -report
+        Dim isAuto As Boolean = My.Application.CommandLineArgs.Contains("-report")
+        Dim filePath As String = ""
 
-        ' ===== Aviso se for impressão completa =====
-        If imprimir AndAlso completo Then
-
+        ' --- 1. TRATAMENTO DE AVISOS ---
+        If imprimir AndAlso completo AndAlso Not isAuto Then
             Dim respAviso = MessageBox.Show(
             "O relatório COMPLETO pode consumir várias folhas de papel." & vbCrLf & vbCrLf &
-            "Recomendamos imprimir apenas o RESUMO." & vbCrLf & vbCrLf &
-            "Sim = Imprimir relatório completo" & vbCrLf &
-            "Não = Imprimir apenas o resumo" & vbCrLf &
-            "Cancelar = Cancelar impressão",
-            "Aviso de Impressão",
-            MessageBoxButtons.YesNoCancel,
-            MessageBoxIcon.Warning
-        )
+            "Sim = Imprimir completo | Não = Apenas resumo",
+            "Aviso de Impressão", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning)
 
             If respAviso = DialogResult.Cancel Then Exit Sub
             If respAviso = DialogResult.No Then completo = False
-            ' Yes mantém completo = True
         End If
 
-        ' ===== Definir caminho do arquivo =====
-        Dim filePath As String
-
-        If imprimir Then
+        ' --- 2. DEFINIÇÃO DO CAMINHO DO ARQUIVO ---
+        If isAuto Then
+            ' Salva direto em Documentos sem perguntar ao usuário
+            filePath = Path.Combine(My.Computer.FileSystem.SpecialDirectories.MyDocuments, "Relatorio_Auto.html")
+        ElseIf imprimir Then
             filePath = Path.Combine(Path.GetTempPath(), "RelatorioSistema.html")
         Else
+            ' Abre o diálogo de salvar apenas se não for automático
             Dim sfd As New SaveFileDialog()
             sfd.Filter = "Arquivo HTML|*.html"
             sfd.FileName = "Relatorio.html"
@@ -1114,27 +1111,17 @@ Public Class Form1
             filePath = sfd.FileName
         End If
 
+        ' --- 3. GERAÇÃO DO CONTEÚDO HTML ---
         Dim sb As New StringBuilder()
-
-        ' ===== Cabeçalho HTML com Bootstrap =====
-        sb.AppendLine("<!DOCTYPE html>")
-        sb.AppendLine("<html lang=""pt-br"">")
-        sb.AppendLine("<head>")
+        sb.AppendLine("<!DOCTYPE html><html lang=""pt-br""><head>")
         sb.AppendLine("<meta charset=""UTF-8"">")
-        sb.AppendLine("<meta name=""viewport"" content=""width=device-width, initial-scale=1"">")
         sb.AppendLine("<link href=""https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"" rel=""stylesheet"">")
-        sb.AppendLine("<link rel=""stylesheet"" href=""https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css"">")
-        sb.AppendLine("<title>Relatório de Sistema</title>")
-        sb.AppendLine("</head>")
-        sb.AppendLine("<body class=""p-3"">")
+        sb.AppendLine("<title>Relatório de Sistema</title></head><body class=""p-3"">")
         sb.AppendLine("<div class=""container"">")
 
-        ' ===== METADADOS =====
         sb.AppendLine(BuildHtmlMetadata())
-
         sb.AppendLine("<h2 class=""mb-3"">Relatório de Sistema</h2>")
 
-        ' ===== Percorrer nodes =====
         If completo Then
             For Each node As TreeNode In TVdispositivos.Nodes
                 AppendNodeHtmlFull(node, sb)
@@ -1145,38 +1132,28 @@ Public Class Form1
             End If
         End If
 
-        sb.AppendLine("</div>")
-        sb.AppendLine("</body>")
-        sb.AppendLine("</html>")
+        sb.AppendLine("</div></body></html>")
 
-        ' ===== Salvar arquivo =====
-        File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8)
+        ' --- 4. SALVAMENTO E FINALIZAÇÃO ---
+        Try
+            File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8)
 
-        ' ===== Comportamento pós-exportação =====
-        If imprimir Then
-            ' Abre no navegador para o usuário imprimir
-            Process.Start(New ProcessStartInfo With {
-            .FileName = filePath,
-            .UseShellExecute = True
-        })
-        Else
-            Dim resp = MessageBox.Show(
-            $"Relatório salvo em:{vbCrLf}{filePath}{vbCrLf}{vbCrLf}Deseja abrir agora?",
-            "Exportação concluída",
-            MessageBoxButtons.YesNo,
-            MessageBoxIcon.Information
-        )
-
-            If resp = DialogResult.Yes Then
-                Process.Start(New ProcessStartInfo With {
-                .FileName = filePath,
-                .UseShellExecute = True
-            })
+            ' Só interage com o usuário se NÃO for modo automático
+            If Not isAuto Then
+                If imprimir Then
+                    Process.Start(New ProcessStartInfo With {.FileName = filePath, .UseShellExecute = True})
+                Else
+                    Dim resp = MessageBox.Show($"Relatório salvo em:{vbCrLf}{filePath}{vbCrLf}{vbCrLf}Deseja abrir agora?",
+                                         "Exportação concluída", MessageBoxButtons.YesNo, MessageBoxIcon.Information)
+                    If resp = DialogResult.Yes Then
+                        Process.Start(New ProcessStartInfo With {.FileName = filePath, .UseShellExecute = True})
+                    End If
+                End If
             End If
-        End If
-
+        Catch ex As Exception
+            If Not isAuto Then MessageBox.Show("Erro ao salvar: " & ex.Message)
+        End Try
     End Sub
-
 
 
     Private Function BuildHtmlMetadata() As String
@@ -1410,4 +1387,17 @@ Public Class Form1
     Private Sub TelaSelecionadaToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles TelaSelecionadaToolStripMenuItem.Click
         ExportReport(False, False)
     End Sub
+
+    Private Sub SairToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles SairToolStripMenuItem.Click
+        Application.Exit()
+
+    End Sub
+    ' Método para ser chamado via linha de comando
+    Public Sub GerarRelatorioAutomatico()
+        ' Forçamos a construção da árvore internamente para coletar os dados
+        BuildTree()
+        ExportReport(True, False)
+    End Sub
+
+
 End Class
