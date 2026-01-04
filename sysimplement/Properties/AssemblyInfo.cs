@@ -6,9 +6,9 @@ using System.Runtime.InteropServices;
 // conjunto de atributos. Altere estes valores de atributo para modificar as informações
 // associadas a um assembly.
 [assembly: AssemblyTitle("sysimplement")]
-[assembly: AssemblyDescription("")]
+[assembly: AssemblyDescription("Ferramenta de implementação de imagens wim, esd, e iso")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("")]
+[assembly: AssemblyCompany("Wtec Sistemas")]
 [assembly: AssemblyProduct("sysimplement")]
 [assembly: AssemblyCopyright("Copyright ©  2026")]
 [assembly: AssemblyTrademark("")]

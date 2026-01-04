@@ -13,6 +13,13 @@ namespace SysImplement
 {
     class Program
     {
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool Wow64DisableWow64FsRedirection(ref IntPtr ptr);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool Wow64RevertWow64FsRedirection(IntPtr ptr);
+        [DllImport("user32.dll")]
+        public static extern short GetAsyncKeyState(int vKey);
+
         static string selectedImage = "";
         static string selectedIndex = "1";
         static string selectedDriverPack = "";
@@ -20,64 +27,48 @@ namespace SysImplement
         static bool showConsole = false;
         static string currentAction = "Aguardando...";
         static int progressValue = 0;
-        static DiskInfo targetDisk = new DiskInfo { Index = -1 };
+        static DiskInfo targetDisk;
         static string bootMode = "UEFI";
         static readonly object _lock = new object();
-        static bool isRunning = false; // NOVA: Trava para o menu
-
-        [DllImport("user32.dll")]
-        public static extern short GetAsyncKeyState(int vKey);
 
         [STAThread]
         static void Main(string[] args)
         {
             try { Console.SetWindowSize(100, 32); } catch { }
-            Console.Title = "Wtec SysImplement v3.4 - Strict Flow Edition";
+            Console.Title = "Wtec SysImplement v2.0";
             Console.CursorVisible = false;
-
             ShowSplash();
 
             while (true)
             {
-                if (isRunning) { Thread.Sleep(500); continue; } // Impede menu se estiver rodando
-
                 int menuOpcao = ShowMainMenu();
                 if (menuOpcao == 4) break;
-
-                bool proceed = false;
-                bool dsk = false, dsm = false, boot = false, drv = false;
-
-                switch (menuOpcao)
+                try
                 {
-                    case 0: proceed = FullDeploymentFlow(); dsk = dsm = boot = true; drv = !string.IsNullOrEmpty(selectedDriverPack); break;
-                    case 1: proceed = DiskOnlyFlow(); dsk = true; break;
-                    case 2: proceed = BootOnlyFlow(); boot = true; break;
-                    case 3: proceed = DriverOnlyFlow(); drv = true; break;
+                    switch (menuOpcao)
+                    {
+                        case 0: if (FullDeploymentFlow()) RunDeployment(true, true, true, !string.IsNullOrEmpty(selectedDriverPack)); break;
+                        case 1: if (DiskOnlyFlow()) RunDeployment(true, false, false, false); break;
+                        case 2: if (BootOnlyFlow()) RunDeployment(false, false, true, false); break;
+                        case 3: if (DriverOnlyFlow()) RunDeployment(false, false, false, true); break;
+                    }
                 }
-
-                if (proceed)
+                catch (Exception ex)
                 {
-                    isRunning = true;
-                    RunDeployment(dsk, dsm, boot, drv);
-
-                    // ESSENCIAL: Espera o usuário ler o resultado antes de voltar ao menu
-                    Console.SetCursorPosition(18, 18);
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.Write("Pressione qualquer tecla para retornar ao menu...");
-                    Console.ReadKey(true);
-                    isRunning = false;
+                    lock (_lock) { logBuffer.Add("ERRO: " + ex.Message); }
+                    showConsole = true;
+                    RenderUI();
+                    Console.ReadKey();
                 }
             }
         }
 
-        #region MOTOR SÍNCRONO REFORÇADO
+        #region FLUXO DE EXECUCAO
         static void RunDeployment(bool doDisk, bool doDism, bool doBoot, bool doDrivers)
         {
             progressValue = 0; logBuffer.Clear(); showConsole = false;
-
-            // Thread de UI permanece para manter o progresso visual
             Thread uiThread = new Thread(() => {
-                while (progressValue < 100 || isRunning)
+                while (progressValue < 100)
                 {
                     if ((GetAsyncKeyState(0x12) & 0x8000) != 0 && (GetAsyncKeyState(0x43) & 0x8000) != 0)
                     {
@@ -85,7 +76,6 @@ namespace SysImplement
                         Thread.Sleep(500);
                     }
                     RenderUI(); Thread.Sleep(200);
-                    if (progressValue >= 100) break;
                 }
             })
             { IsBackground = true };
@@ -94,142 +84,147 @@ namespace SysImplement
             try
             {
                 string osDrive = "", sysDrive = "";
-
                 if (doDisk)
                 {
-                    currentAction = "Limpando disco e redefinindo ID...";
-                    // Uniqueid ajuda o Windows a não se perder com partições antigas em cache
-                    string script = (bootMode == "UEFI")
-                        ? $"select disk {targetDisk.Index}\noffline disk\nonline disk\nclean\nconvert gpt\ncreate partition efi size=100\nformat quick fs=fat32 label=\"SYSTEM\"\nassign\ncreate partition msr size=16\ncreate partition primary\nformat quick fs=ntfs label=\"WINDOWS\"\nassign\nrescan"
-                        : $"select disk {targetDisk.Index}\noffline disk\nonline disk\nclean\nconvert mbr\ncreate partition primary size=100\nformat quick fs=ntfs label=\"SYSTEM\"\nassign\nactive\ncreate partition primary\nformat quick fs=ntfs label=\"WINDOWS\"\nassign\nrescan";
-
-                    if (!RunDiskpartBlocking(script)) throw new Exception("Diskpart não conseguiu finalizar as operações.");
-                    Thread.Sleep(3000);
-                }
-
-                currentAction = "Verificando letras de unidades...";
-                // Loop de 5 tentativas para montagem
-                for (int i = 0; i < 5; i++)
-                {
-                    foreach (DriveInfo d in DriveInfo.GetDrives().Where(x => x.IsReady))
+                    currentAction = "Particionando...";
+                    StringBuilder ds = new StringBuilder();
+                    ds.AppendLine($"select disk {targetDisk.Index}");
+                    ds.AppendLine("clean");
+                    if (bootMode == "UEFI")
                     {
-                        if (d.VolumeLabel == "WINDOWS") osDrive = d.Name;
-                        if (d.VolumeLabel == "SYSTEM") sysDrive = d.Name;
+                        ds.AppendLine("convert gpt");
+                        ds.AppendLine("create partition efi size=100");
+                        ds.AppendLine("format quick fs=fat32 label=\"SYSTEM\"");
+                        ds.AppendLine("assign");
                     }
-                    if (!string.IsNullOrEmpty(osDrive)) break;
-                    Thread.Sleep(1000);
+                    else
+                    {
+                        ds.AppendLine("convert mbr");
+                        ds.AppendLine("create partition primary size=100");
+                        ds.AppendLine("format quick fs=ntfs label=\"SYSTEM\"");
+                        ds.AppendLine("active");
+                        ds.AppendLine("assign");
+                    }
+                    ds.AppendLine("create partition primary");
+                    ds.AppendLine("format quick fs=ntfs label=\"WINDOWS\"");
+                    ds.AppendLine("assign");
+                    RunDiskpartScript(ds.ToString());
                 }
 
-                if (doDism)
+                Thread.Sleep(2000);
+                foreach (DriveInfo d in DriveInfo.GetDrives().Where(x => x.IsReady))
                 {
-                    if (string.IsNullOrEmpty(osDrive)) throw new Exception("Drive 'WINDOWS' não montou a tempo.");
-                    currentAction = "Extraindo imagem para o disco...";
-                    ExecuteWithProgress("dism.exe", $"/Apply-Image /ImageFile:\"{selectedImage}\" /Index:{selectedIndex} /ApplyDir:{osDrive}", 0, 80);
+                    if (d.VolumeLabel == "WINDOWS") osDrive = d.Name;
+                    if (d.VolumeLabel == "SYSTEM") sysDrive = d.Name;
                 }
 
-                if (doDrivers && !string.IsNullOrEmpty(selectedDriverPack))
+                if (doDism && !string.IsNullOrEmpty(osDrive))
                 {
-                    RestoreDriversOffline(selectedDriverPack, osDrive);
+                    currentAction = "Aplicando Windows...";
+                    ExecuteWithProgress("dism.exe", $"/Apply-Image /ImageFile:\"{selectedImage}\" /Index:{selectedIndex} /ApplyDir:{osDrive}");
                 }
 
-                if (doBoot)
+                if (doDrivers && !string.IsNullOrEmpty(selectedDriverPack)) RestoreDriversOffline(selectedDriverPack, osDrive);
+
+                if (doBoot && !string.IsNullOrEmpty(osDrive))
                 {
-                    if (string.IsNullOrEmpty(sysDrive)) throw new Exception("Drive 'SYSTEM' não disponível para boot.");
-                    currentAction = "Criando setor de inicialização...";
-                    string sysLetter = sysDrive.Substring(0, 2);
-                    ExecuteHidden("bcdboot.exe", $"{osDrive}Windows /s {sysLetter} /f {(bootMode == "UEFI" ? "UEFI" : "BIOS")}");
+                    currentAction = "Gravando Bootloader...";
+                    string winPath = Path.Combine(osDrive.Substring(0, 2) + "\\", "Windows");
+                    string sysLet = string.IsNullOrEmpty(sysDrive) ? osDrive.Substring(0, 2) : sysDrive.Substring(0, 2);
+                    string bcdArgs = $"\"{winPath}\" /s {sysLet} /f {(bootMode == "UEFI" ? "UEFI" : "BIOS")}";
+                    ExecuteNativeProcess("bcdboot.exe", bcdArgs);
                 }
 
+                ExecuteNativeProcess("dism.exe", "/Cleanup-Wim");
                 progressValue = 100;
-                currentAction = "PROCESSO FINALIZADO!";
+                currentAction = "FINALIZADO!";
+                lock (_lock) { showConsole = true; }
             }
-            catch (Exception ex)
-            {
-                lock (_lock) { logBuffer.Add("FALHA CRÍTICA: " + ex.Message); }
-                progressValue = 100;
-                showConsole = true;
-            }
-        }
-
-        static bool RunDiskpartBlocking(string script)
-        {
-            string path = Path.Combine(Path.GetTempPath(), "dp.txt");
-            File.WriteAllText(path, script);
-
-            ProcessStartInfo psi = new ProcessStartInfo("diskpart.exe", $"/s \"{path}\"")
-            {
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = true
-            };
-
-            using (Process p = Process.Start(psi))
-            {
-                while (!p.StandardOutput.EndOfStream)
-                {
-                    string line = p.StandardOutput.ReadLine();
-                    lock (_lock) { logBuffer.Add("[DISKPART] " + line); }
-                }
-                p.WaitForExit();
-                return p.ExitCode == 0;
-            }
+            catch (Exception ex) { lock (_lock) { logBuffer.Add("FALHA: " + ex.Message); } progressValue = 100; showConsole = true; }
+            RenderUI();
+            Console.ReadKey(true);
         }
         #endregion
 
-        #region FILE BROWSER COM SCROLL (CORRIGIDO)
-        static string FileBrowser(string path, string title, string filter)
+        #region UTILITARIOS DE PROCESSO
+        static void ExecuteNativeProcess(string exe, string args)
         {
-            int sel = 0; int scroll = 0; const int limit = 20;
-            string curDir = path;
-
-            while (true)
+            IntPtr ptr = IntPtr.Zero;
+            bool is64 = Environment.Is64BitOperatingSystem;
+            if (is64) Wow64DisableWow64FsRedirection(ref ptr);
+            try
             {
-                Console.BackgroundColor = ConsoleColor.DarkGray; Console.Clear();
-                DrawBox(2, 1, 95, 28, $" {title} ");
+                var psi = new ProcessStartInfo(exe, args) { CreateNoWindow = true, UseShellExecute = false };
+                using (var p = Process.Start(psi)) { p?.WaitForExit(); }
+            }
+            finally { if (is64) Wow64RevertWow64FsRedirection(ptr); }
+        }
 
-                List<string> items = new List<string>();
-                if (string.IsNullOrEmpty(curDir)) items = DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.Name).ToList();
-                else
+        static void ExecuteWithProgress(string exe, string args)
+        {
+            IntPtr ptr = IntPtr.Zero;
+            bool is64 = Environment.Is64BitOperatingSystem;
+            if (is64) Wow64DisableWow64FsRedirection(ref ptr);
+            try
+            {
+                var psi = new ProcessStartInfo(exe, args) { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true };
+                using (var proc = Process.Start(psi))
                 {
-                    items.Add(".. [ VOLTAR ]");
-                    try
+                    while (!proc.StandardOutput.EndOfStream)
                     {
-                        items.AddRange(Directory.GetDirectories(curDir).Select(d => "[" + Path.GetFileName(d) + "]"));
-                        items.AddRange(Directory.GetFiles(curDir).Where(f => filter.Split('|').Any(ex => f.EndsWith(ex, StringComparison.OrdinalIgnoreCase))));
+                        string l = proc.StandardOutput.ReadLine();
+                        if (string.IsNullOrEmpty(l)) continue;
+                        lock (_lock)
+                        {
+                            logBuffer.Add(l);
+                            if (l.Contains("%"))
+                            {
+                                var digit = new string(l.Where(char.IsDigit).ToArray());
+                                if (int.TryParse(digit, out int v)) progressValue = 20 + (int)(v * 0.75);
+                            }
+                        }
                     }
-                    catch { items.Add("!! ACESSO NEGADO !!"); }
-                }
-
-                if (sel >= scroll + limit) scroll = sel - limit + 1;
-                if (sel < scroll) scroll = sel;
-
-                for (int i = 0; i < limit; i++)
-                {
-                    int idx = scroll + i;
-                    if (idx >= items.Count) break;
-                    Console.SetCursorPosition(5, 4 + i);
-                    if (idx == sel) { Console.BackgroundColor = ConsoleColor.Cyan; Console.ForegroundColor = ConsoleColor.Black; }
-                    else { Console.BackgroundColor = ConsoleColor.DarkGray; Console.ForegroundColor = ConsoleColor.White; }
-                    Console.Write($"> {Truncate(items[idx], 85).PadRight(87)}");
-                }
-
-                var k = Console.ReadKey(true).Key;
-                if (k == ConsoleKey.UpArrow && sel > 0) sel--;
-                if (k == ConsoleKey.DownArrow && sel < items.Count - 1) sel++;
-                if (k == ConsoleKey.Escape) return "";
-                if (k == ConsoleKey.Enter)
-                {
-                    string s = items[sel];
-                    if (string.IsNullOrEmpty(curDir)) curDir = s;
-                    else if (s == ".. [ VOLTAR ]") curDir = Path.GetDirectoryName(curDir.TrimEnd('\\')) ?? "";
-                    else if (s.StartsWith("[")) { curDir = Path.Combine(curDir, s.Trim('[', ']')); sel = 0; scroll = 0; }
-                    else if (!s.StartsWith("!!")) return s;
+                    proc.WaitForExit();
                 }
             }
+            finally { if (is64) Wow64RevertWow64FsRedirection(ptr); }
+        }
+
+        static void RestoreDriversOffline(string drvBackupPath, string targetOsPath)
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "WtecDrivers");
+            try
+            {
+                if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+                Directory.CreateDirectory(tempDir);
+                currentAction = "Extraindo drivers...";
+                ZipFile.ExtractToDirectory(drvBackupPath, tempDir);
+                currentAction = "Injetando drivers...";
+                ExecuteWithProgress("dism.exe", $"/Image:{targetOsPath} /Add-Driver /Driver:\"{tempDir}\" /Recurse /ForceUnsigned");
+            }
+            catch { }
+            finally { try { Directory.Delete(tempDir, true); } catch { } }
+        }
+
+        static void RunDiskpartScript(string script)
+        {
+            string p = Path.Combine(Path.GetTempPath(), "dp.txt"); File.WriteAllText(p, script);
+            ExecuteNativeProcess("diskpart.exe", $"/s \"{p}\"");
         }
         #endregion
 
-        #region COMPONENTES DE INTERFACE
+        #region INTERFACE E NAVEGACAO
+        static void DrawBox(int x, int y, int w, int h, string t)
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.SetCursorPosition(x, y); Console.Write("╔" + new string('═', w - 2) + "╗");
+            for (int i = 1; i < h - 1; i++) { Console.SetCursorPosition(x, y + i); Console.Write("║" + new string(' ', w - 2) + "║"); }
+            Console.SetCursorPosition(x, y + h - 1); Console.Write("╚" + new string('═', w - 2) + "╝");
+            if (!string.IsNullOrEmpty(t)) { Console.SetCursorPosition(x + (w / 2) - (t.Length / 2), y); Console.Write(t); }
+        }
+
+        static string Truncate(string s, int m) => s.Length <= m ? s : s.Substring(0, m - 3) + "...";
+
         static void RenderUI()
         {
             lock (_lock)
@@ -237,7 +232,7 @@ namespace SysImplement
                 if (showConsole)
                 {
                     Console.BackgroundColor = ConsoleColor.Black; Console.Clear();
-                    DrawBox(2, 2, 96, 28, " LOGS TÉCNICOS (ALT+C VOLTA) ");
+                    DrawBox(2, 2, 96, 28, " LOGS (ALT+C VOLTAR) ");
                     int st = Math.Max(0, logBuffer.Count - 24);
                     for (int i = 0; i < Math.Min(logBuffer.Count, 24); i++)
                     {
@@ -247,10 +242,10 @@ namespace SysImplement
                     return;
                 }
                 Console.BackgroundColor = ConsoleColor.DarkBlue; Console.Clear();
-                DrawBox(15, 12, 70, 8, " OPERAÇÃO EM CURSO ");
-                Console.SetCursorPosition(18, 14); Console.Write("STATUS: " + Truncate(currentAction, 50).PadRight(51));
-                int bw = (int)(progressValue * 0.45);
+                DrawBox(15, 12, 70, 8, " PROCESSANDO ");
+                Console.SetCursorPosition(18, 14); Console.Write("AÇÃO: " + Truncate(currentAction, 50).PadRight(51));
                 Console.SetCursorPosition(18, 16);
+                int bw = (int)(progressValue * 0.45);
                 Console.ForegroundColor = ConsoleColor.Green; Console.Write(new string('█', bw));
                 Console.ForegroundColor = ConsoleColor.Gray; Console.Write(new string('░', 45 - bw) + $" {progressValue}%");
             }
@@ -258,7 +253,7 @@ namespace SysImplement
 
         static int ShowMainMenu()
         {
-            int sel = 0; string[] items = { " [1] IMPLANTAR WINDOWS ", " [2] FORMATAR DISCO ", " [3] REPARAR BOOT ", " [4] INJETAR DRIVERS ", " [5] SAIR " };
+            int sel = 0; string[] items = { " [1] INSTALAR COMPLETO ", " [2] APENAS DISCO ", " [3] REPARAR BOOT ", " [4] INJETAR DRIVERS ", " [5] SAIR " };
             while (true)
             {
                 Console.BackgroundColor = ConsoleColor.DarkBlue; Console.Clear();
@@ -277,42 +272,110 @@ namespace SysImplement
             }
         }
 
-        static string GetImageIndex(string path)
+        static string FileBrowser(string startPath, string title, string filter)
         {
-            Console.Clear(); DrawBox(5, 5, 90, 20, " LEITURA DA IMAGEM ");
-            var psi = new ProcessStartInfo("dism.exe", $"/Get-WimInfo /WimFile:\"{path}\"") { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true };
-            var p = Process.Start(psi); string outD = p.StandardOutput.ReadToEnd(); p.WaitForExit();
-            string[] lines = outD.Split('\n'); int y = 7;
-            foreach (var l in lines) if (l.Contains("Index") || l.Contains("Índice") || l.Contains("Name") || l.Contains("Nome")) if (y < 24) { Console.SetCursorPosition(8, y++); Console.Write(l.Trim()); }
-            Console.SetCursorPosition(8, 26); Console.Write("Informe o Índice: "); Console.CursorVisible = true; string r = Console.ReadLine(); Console.CursorVisible = false;
-            return string.IsNullOrEmpty(r) ? "1" : r;
+            string path = startPath; int sel = 0; int scroll = 0;
+            const int maxView = 20;
+
+            while (true)
+            {
+                Console.BackgroundColor = ConsoleColor.DarkGray; Console.Clear();
+                DrawBox(2, 1, 95, 28, $" {title} ");
+                List<string> ent = new List<string>();
+                if (string.IsNullOrEmpty(path)) ent = DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.Name).ToList();
+                else
+                {
+                    ent.Add(".. [ VOLTAR ]");
+                    try
+                    {
+                        ent.AddRange(Directory.GetDirectories(path).Select(d => "[" + Path.GetFileName(d) + "]"));
+                        ent.AddRange(Directory.GetFiles(path).Where(f => filter.Contains(Path.GetExtension(f).ToLower())).Select(Path.GetFileName));
+                    }
+                    catch { }
+                }
+
+                if (sel < scroll) scroll = sel;
+                if (sel >= scroll + maxView) scroll = sel - maxView + 1;
+
+                for (int i = 0; i < Math.Min(ent.Count - scroll, maxView); i++)
+                {
+                    int idx = i + scroll;
+                    Console.SetCursorPosition(5, 3 + i);
+                    if (idx == sel) { Console.BackgroundColor = ConsoleColor.Cyan; Console.ForegroundColor = ConsoleColor.Black; }
+                    else { Console.BackgroundColor = ConsoleColor.DarkGray; Console.ForegroundColor = ConsoleColor.White; }
+                    Console.Write($"> {Truncate(ent[idx], 88).PadRight(90)}");
+                }
+
+                var k = Console.ReadKey(true).Key;
+                if (k == ConsoleKey.Escape) return "";
+                if (k == ConsoleKey.UpArrow && sel > 0) sel--;
+                if (k == ConsoleKey.DownArrow && sel < ent.Count - 1) sel++;
+                if (k == ConsoleKey.Enter)
+                {
+                    string s = ent[sel];
+                    if (string.IsNullOrEmpty(path)) { path = s; sel = 0; scroll = 0; }
+                    else if (s == ".. [ VOLTAR ]") { path = Path.GetDirectoryName(path.TrimEnd('\\')) ?? ""; sel = 0; scroll = 0; }
+                    else if (s.StartsWith("[")) { path = Path.Combine(path, s.Trim('[', ']')); sel = 0; scroll = 0; }
+                    else return Path.Combine(path, s);
+                }
+            }
         }
 
-        static void ShowSplash()
+        static string BootModeSelector()
         {
-            Console.Clear(); Console.ForegroundColor = ConsoleColor.Cyan;
-            string[] logo = {
-                "  ██╗    ██╗████████╗███████╗ ██████╗  ",
-                "  ██║    ██║╚══██╔══╝██╔════╝██╔════╝  ",
-                "  ██║ █╗ ██║   ██║   █████╗  ██║       ",
-                "  ██║███╗██║   ██║   ██╔══╝  ██║       ",
-                "  ╚███╔███╔╝   ██║   ███████╗╚██████╗  ",
-                "   ╚══╝╚══╝    ╚═╝   ╚══════╝ ╚═════╝  ",
-                "       TECNOLOGIA E SISTEMAS @ 2026    "
-            };
-            int y = 5; foreach (string l in logo) { Console.SetCursorPosition((100 - l.Length) / 2, y++); Console.WriteLine(l); }
-            Thread.Sleep(1000);
-        }
-
-        static int DiskSelector()
-        {
-            int sel = 0; var dsks = new List<DiskInfo>();
-            ManagementObjectSearcher s = new ManagementObjectSearcher("SELECT * FROM Win32_DiskDrive");
-            foreach (ManagementObject d in s.Get()) dsks.Add(new DiskInfo { Index = Convert.ToInt32(d["Index"]), Model = d["Model"].ToString(), SizeGB = Convert.ToDouble(d["Size"]) / 1073741824.0 });
             while (true)
             {
                 Console.BackgroundColor = ConsoleColor.DarkBlue; Console.Clear();
-                DrawBox(10, 5, 80, 20, " SELECIONE O DISCO ");
+                DrawBox(30, 10, 40, 8, " MODO DE BOOT ");
+                Console.SetCursorPosition(33, 13); Console.Write("[1] UEFI (Padrao GPT)");
+                Console.SetCursorPosition(33, 14); Console.Write("[2] LEGACY (BIOS/MBR)");
+                Console.SetCursorPosition(33, 16); Console.Write("Escolha: ");
+                var k = Console.ReadKey(true).KeyChar;
+                if (k == '1') return "UEFI";
+                if (k == '2') return "BIOS";
+            }
+        }
+
+        static string GetImageIndex(string path)
+        {
+            Console.Clear(); DrawBox(5, 2, 90, 26, " VERSOES DISPONIVEIS ");
+            IntPtr ptr = IntPtr.Zero;
+            bool is64 = Environment.Is64BitOperatingSystem;
+            if (is64) Wow64DisableWow64FsRedirection(ref ptr);
+
+            string outD = "";
+            try
+            {
+                var psi = new ProcessStartInfo("dism.exe", $"/Get-WimInfo /WimFile:\"{path}\"") { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true };
+                using (var p = Process.Start(psi)) { outD = p.StandardOutput.ReadToEnd(); p.WaitForExit(); }
+            }
+            finally { if (is64) Wow64RevertWow64FsRedirection(ptr); }
+
+            string[] lines = outD.Split('\n'); int y = 4;
+            foreach (var line in lines)
+            {
+                if ((line.Contains("Index") || line.Contains("Name") || line.Contains("Índice") || line.Contains("Nome")) && !line.Contains("Informações"))
+                {
+                    Console.SetCursorPosition(8, y++);
+                    Console.Write(line.Trim());
+                    if (y > 24) break;
+                }
+            }
+            Console.SetCursorPosition(5, 28); Console.Write("Digite o numero do Index: ");
+            Console.CursorVisible = true; string r = Console.ReadLine(); Console.CursorVisible = false;
+            return string.IsNullOrEmpty(r) ? "1" : r;
+        }
+
+        // Restante dos métodos (DiskSelector, ConfirmAction, etc) mantidos da versão funcional
+        static int DiskSelector()
+        {
+            int sel = 0;
+            while (true)
+            {
+                var dsks = new List<DiskInfo>();
+                ManagementObjectSearcher s = new ManagementObjectSearcher("SELECT * FROM Win32_DiskDrive");
+                foreach (ManagementObject d in s.Get()) dsks.Add(new DiskInfo { Index = Convert.ToInt32(d["Index"]), Model = d["Model"].ToString(), SizeGB = Convert.ToDouble(d["Size"]) / 1073741824.0 });
+                Console.BackgroundColor = ConsoleColor.DarkBlue; Console.Clear(); DrawBox(10, 5, 80, 20, " SELECAO DE DISCO ");
                 for (int i = 0; i < dsks.Count; i++)
                 {
                     Console.SetCursorPosition(13, 8 + i);
@@ -327,29 +390,13 @@ namespace SysImplement
                 if (k == ConsoleKey.Escape) return -1;
             }
         }
-
-        static bool FullDeploymentFlow()
-        {
-            selectedImage = FileBrowser("", "Imagem do Windows", ".wim|.esd");
-            if (string.IsNullOrEmpty(selectedImage)) return false;
-            selectedIndex = GetImageIndex(selectedImage);
-            if (ConfirmAction("Injetar Pack de Drivers?")) selectedDriverPack = FileBrowser("", "Drivers", ".drvbackup");
-            if (DiskSelector() == -1) return false;
-            bootMode = BootModeSelector();
-            return ShowSummary("GERAL");
-        }
-
-        static bool DiskOnlyFlow() { if (DiskSelector() == -1) return false; bootMode = BootModeSelector(); return ShowSummary("DISCO"); }
-        static bool BootOnlyFlow() { if (DiskSelector() == -1) return false; bootMode = BootModeSelector(); return ShowSummary("BOOT"); }
-        static bool DriverOnlyFlow() { selectedDriverPack = FileBrowser("", "Drivers", ".drvbackup"); if (string.IsNullOrEmpty(selectedDriverPack) || DiskSelector() == -1) return false; return ShowSummary("DRIVERS"); }
-        static void DrawBox(int x, int y, int w, int h, string t) { Console.ForegroundColor = ConsoleColor.White; Console.SetCursorPosition(x, y); Console.Write("╔" + new string('═', w - 2) + "╗"); for (int i = 1; i < h - 1; i++) { Console.SetCursorPosition(x, y + i); Console.Write("║" + new string(' ', w - 2) + "║"); } Console.SetCursorPosition(x, y + h - 1); Console.Write("╚" + new string('═', w - 2) + "╝"); if (!string.IsNullOrEmpty(t)) { Console.SetCursorPosition(x + (w / 2) - (t.Length / 2), y); Console.Write(t); } }
-        static bool ConfirmAction(string m) { Console.Clear(); DrawBox(20, 12, 60, 6, " CONFIRMAR "); Console.SetCursorPosition(23, 14); Console.Write(m); Console.SetCursorPosition(23, 16); Console.Write("[S] SIM | [N] NÃO"); return Console.ReadKey(true).Key == ConsoleKey.S; }
-        static string BootModeSelector() { int sel = 0; string[] m = { "UEFI (GPT)", "LEGACY (MBR)" }; while (true) { Console.Clear(); DrawBox(35, 12, 30, 6, " BOOT "); for (int i = 0; i < 2; i++) { Console.SetCursorPosition(38, 14 + i); if (sel == i) { Console.BackgroundColor = ConsoleColor.Cyan; Console.ForegroundColor = ConsoleColor.Black; } else { Console.BackgroundColor = ConsoleColor.DarkBlue; Console.ForegroundColor = ConsoleColor.White; } Console.Write(m[i]); } var k = Console.ReadKey(true).Key; if (k == ConsoleKey.UpArrow || k == ConsoleKey.DownArrow) sel = 1 - sel; if (k == ConsoleKey.Enter) return (sel == 0) ? "UEFI" : "LEGACY"; } }
-        static bool ShowSummary(string t) { Console.BackgroundColor = ConsoleColor.DarkBlue; Console.Clear(); DrawBox(20, 10, 60, 11, $" {t} "); Console.SetCursorPosition(23, 13); Console.Write("DISCO: " + targetDisk.Model); Console.SetCursorPosition(23, 14); Console.Write("MODO:  " + bootMode); Console.SetCursorPosition(23, 15); Console.Write("WIM:   " + Path.GetFileName(selectedImage)); Console.ForegroundColor = ConsoleColor.Red; Console.SetCursorPosition(23, 17); Console.Write("O DISCO SERÁ FORMATADO!"); Console.ForegroundColor = ConsoleColor.White; Console.SetCursorPosition(23, 19); Console.Write("[ENTER] INICIAR | [ESC] SAIR"); return Console.ReadKey(true).Key == ConsoleKey.Enter; }
-        static void ExecuteHidden(string e, string a) { Process.Start(new ProcessStartInfo(e, a) { CreateNoWindow = true, UseShellExecute = false }).WaitForExit(); }
-        static void RestoreDriversOffline(string p, string os) { string tmp = Path.Combine(Path.GetTempPath(), "WtecDrivers"); if (Directory.Exists(tmp)) Directory.Delete(tmp, true); Directory.CreateDirectory(tmp); using (ZipArchive arc = ZipFile.OpenRead(p)) { foreach (var en in arc.Entries) { string f = Path.Combine(tmp, en.FullName); if (!Directory.Exists(Path.GetDirectoryName(f))) Directory.CreateDirectory(Path.GetDirectoryName(f)); if (!string.IsNullOrEmpty(en.Name)) en.ExtractToFile(f, true); } } ExecuteWithProgress("dism.exe", $"/Image:{os} /Add-Driver /Driver:\"{tmp}\" /Recurse", 85, 10); }
-        static void ExecuteWithProgress(string exe, string args, int baseP, int w) { var psi = new ProcessStartInfo(exe, args) { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true }; using (var p = Process.Start(psi)) { while (!p.StandardOutput.EndOfStream) { string l = p.StandardOutput.ReadLine(); if (l.Contains("%")) { var d = new string(l.Where(char.IsDigit).ToArray()); if (int.TryParse(d, out int v)) progressValue = baseP + (int)(v * (w / 100.0)); } lock (_lock) logBuffer.Add(l); } p.WaitForExit(); } }
-        static string Truncate(string s, int m) => s.Length <= m ? s : s.Substring(0, m - 3) + "...";
+        static bool FullDeploymentFlow() { selectedImage = FileBrowser("", "Selecionar Imagem Windows", ".wim.esd"); if (string.IsNullOrEmpty(selectedImage)) return false; selectedIndex = GetImageIndex(selectedImage); if (ConfirmAction("Deseja injetar drivers?")) selectedDriverPack = FileBrowser("", "Selecionar Pack de Drivers", ".drvbackup"); if (DiskSelector() == -1) return false; bootMode = BootModeSelector(); return ShowSummary("INSTALACAO COMPLETA"); }
+        static bool DiskOnlyFlow() { if (DiskSelector() == -1) return false; bootMode = BootModeSelector(); return ShowSummary("APENAS DISCO"); }
+        static bool BootOnlyFlow() { if (DiskSelector() == -1) return false; bootMode = BootModeSelector(); return ShowSummary("REPARAR BOOT"); }
+        static bool DriverOnlyFlow() { selectedDriverPack = FileBrowser("", "Selecionar Drivers", ".drvbackup"); if (string.IsNullOrEmpty(selectedDriverPack)) return false; if (DiskSelector() == -1) return false; return ShowSummary("INJETAR DRIVERS"); }
+        static bool ConfirmAction(string msg) { Console.Clear(); DrawBox(20, 12, 60, 6, " CONFIRMAR "); Console.SetCursorPosition(22, 14); Console.Write(Truncate(msg, 56)); Console.SetCursorPosition(38, 16); Console.Write("[S] SIM  [N] NAO"); return Console.ReadKey(true).Key == ConsoleKey.S; }
+        static bool ShowSummary(string title) { Console.BackgroundColor = ConsoleColor.DarkBlue; Console.Clear(); DrawBox(20, 10, 60, 11, $" {title} "); Console.SetCursorPosition(23, 13); Console.Write("DISCO: " + targetDisk.Model); Console.SetCursorPosition(23, 14); Console.Write("BOOT:  " + bootMode); Console.SetCursorPosition(0, 31); Console.BackgroundColor = ConsoleColor.Gray; Console.ForegroundColor = ConsoleColor.Black; Console.Write(" [ENTER] INICIAR | [ESC] SAIR ".PadRight(100)); return Console.ReadKey(true).Key == ConsoleKey.Enter; }
+        static void ShowSplash() { Console.Clear(); Console.ForegroundColor = ConsoleColor.Cyan; Console.SetCursorPosition(35, 12); Console.Write("Wtec SysImplement v2.9.9"); Thread.Sleep(800); }
         struct DiskInfo { public int Index; public string Model; public double SizeGB; }
         #endregion
     }
