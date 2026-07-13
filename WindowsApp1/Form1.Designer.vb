@@ -1,9 +1,9 @@
-﻿<Global.Microsoft.VisualBasic.CompilerServices.DesignerGenerated()> _
+﻿<Global.Microsoft.VisualBasic.CompilerServices.DesignerGenerated()>
 Partial Class Form1
     Inherits System.Windows.Forms.Form
 
     'Descartar substituições de formulário para limpar a lista de componentes.
-    <System.Diagnostics.DebuggerNonUserCode()> _
+    <System.Diagnostics.DebuggerNonUserCode()>
     Protected Overrides Sub Dispose(ByVal disposing As Boolean)
         Try
             If disposing AndAlso components IsNot Nothing Then
@@ -20,7 +20,7 @@ Partial Class Form1
     'OBSERVAÇÃO: o procedimento a seguir é exigido pelo Windows Form Designer
     'Pode ser modificado usando o Windows Form Designer.  
     'Não o modifique usando o editor de códigos.
-    <System.Diagnostics.DebuggerStepThrough()> _
+    <System.Diagnostics.DebuggerStepThrough()>
     Private Sub InitializeComponent()
         Me.components = New System.ComponentModel.Container()
         Dim resources As System.ComponentModel.ComponentResourceManager = New System.ComponentModel.ComponentResourceManager(GetType(Form1))
@@ -100,13 +100,13 @@ Partial Class Form1
         'CompletoToolStripMenuItem
         '
         Me.CompletoToolStripMenuItem.Name = "CompletoToolStripMenuItem"
-        Me.CompletoToolStripMenuItem.Size = New System.Drawing.Size(161, 22)
+        Me.CompletoToolStripMenuItem.Size = New System.Drawing.Size(160, 22)
         Me.CompletoToolStripMenuItem.Text = "Completo"
         '
         'TelaSelecionadaToolStripMenuItem
         '
         Me.TelaSelecionadaToolStripMenuItem.Name = "TelaSelecionadaToolStripMenuItem"
-        Me.TelaSelecionadaToolStripMenuItem.Size = New System.Drawing.Size(161, 22)
+        Me.TelaSelecionadaToolStripMenuItem.Size = New System.Drawing.Size(160, 22)
         Me.TelaSelecionadaToolStripMenuItem.Text = "Tela Selecionada"
         '
         'ImprimirToolStripMenuItem
@@ -137,7 +137,7 @@ Partial Class Form1
         'ExibirToolStripMenuItem
         '
         Me.ExibirToolStripMenuItem.Name = "ExibirToolStripMenuItem"
-        Me.ExibirToolStripMenuItem.Size = New System.Drawing.Size(47, 20)
+        Me.ExibirToolStripMenuItem.Size = New System.Drawing.Size(48, 20)
         Me.ExibirToolStripMenuItem.Text = "&Exibir"
         '
         'ToolStripMenuItem1
@@ -249,7 +249,7 @@ Partial Class Form1
         '
         Me.ImageList1.ImageStream = CType(resources.GetObject("ImageList1.ImageStream"), System.Windows.Forms.ImageListStreamer)
         Me.ImageList1.TransparentColor = System.Drawing.Color.Transparent
-        Me.ImageList1.Images.SetKeyName(0, "win")
+        Me.ImageList1.Images.SetKeyName(0, "os")
         Me.ImageList1.Images.SetKeyName(1, "folder")
         Me.ImageList1.Images.SetKeyName(2, "chip")
         Me.ImageList1.Images.SetKeyName(3, "cpu")

@@ -1,4 +1,10 @@
-﻿Imports System.Globalization
+﻿' ============================================================
+'  Este projeto é open-source — código-fonte completo disponível
+'  publicamente no GitHub. Contribuições, issues e PRs são bem-vindos.
+'  Ao editar, prefira nomes/comentários claros e evite hardcode de
+'  caminhos, credenciais ou dados específicos de uma única máquina.
+' ============================================================
+Imports System.Globalization
 Imports System.IO
 Imports System.Management
 Imports System.Text
@@ -7,6 +13,7 @@ Imports System.Drawing.Icon
 Imports System.Diagnostics
 Imports System.Linq
 Imports System.Drawing
+Imports System.Net
 
 
 
@@ -18,6 +25,8 @@ Public Class Form1
         SIID_DRIVEREMOVABLE = &H9
         SIID_DRIVENET = &HA
         SIID_DRIVERAM = &HB
+        SIID_FOLDER = &H3          ' ADICIONADO: Ícone de Pasta genérica
+        SIID_DOCASSOC = &H1        ' ADICIONADO: Usado para relatórios/documentos
         SIID_COMPUTER = &H10
         SIID_PROCESSOR = &H16
         SIID_MEMORY = &H17
@@ -31,6 +40,12 @@ Public Class Form1
     Private Const SHGSI_LARGEICON As UInteger = &H0
     Private statusTimer As Timer
 
+    ' ===== Ícones do ListView de detalhes =====
+    Private lvIconList As ImageList
+    ' Categoria "corrente" usada pelo AddDetail para escolher o ícone da linha,
+    ' setada no início de cada Show* antes das chamadas a AddDetail.
+    Private currentIconKey As String = "info"
+
     <StructLayout(LayoutKind.Sequential, CharSet:=CharSet.Unicode)>
     Private Structure SHSTOCKICONINFO
         Public cbSize As UInteger
@@ -39,16 +54,31 @@ Public Class Form1
         <MarshalAs(UnmanagedType.ByValTStr, SizeConst:=260)>
         Public szPath As String
     End Structure
-    '<DllImport("shell32.dll")>
+
     <DllImport("user32.dll")>
     Private Shared Function DestroyIcon(hIcon As IntPtr) As Boolean
     End Function
+
+    ' FIX: faltava o DllImport correto (estava comentado / a função ficava sem atributo nenhum)
+    <DllImport("shell32.dll")>
     Private Shared Function SHGetStockIconInfo(
     ByVal siid As SHSTOCKICONID,
     ByVal uFlags As UInteger,
     ByRef psii As SHSTOCKICONINFO
 ) As Integer
     End Function
+
+    ' ===== P/Invoke para anexar/criar um console quando o app roda em modo CLI =====
+    Private Const ATTACH_PARENT_PROCESS As Integer = -1
+
+    <DllImport("kernel32.dll")>
+    Private Shared Function AttachConsole(dwProcessId As Integer) As Boolean
+    End Function
+
+    <DllImport("kernel32.dll")>
+    Private Shared Function AllocConsole() As Boolean
+    End Function
+
     ' Declare objetos para monitoramento
     Private cpuCounter As PerformanceCounter
     Private ramCounter As PerformanceCounter
@@ -76,20 +106,30 @@ Public Class Form1
         Dim cpuUso = cpuCounter.NextValue()
 
         ' RAM total
-        Dim cs As ManagementObject = New ManagementObjectSearcher("SELECT TotalPhysicalMemory FROM Win32_ComputerSystem").Get().Cast(Of ManagementObject)().FirstOrDefault()
-        Dim ramTotal As Long = If(cs IsNot Nothing, CLng(cs("TotalPhysicalMemory")), 0)
+        Dim ramTotal As Long = 0
+        Using searcher As New ManagementObjectSearcher("SELECT TotalPhysicalMemory FROM Win32_ComputerSystem")
+            Using results As ManagementObjectCollection = searcher.Get()
+                Using cs As ManagementObject = results.Cast(Of ManagementObject)().FirstOrDefault()
+                    ramTotal = If(cs IsNot Nothing, WmiLng(cs, "TotalPhysicalMemory"), 0)
+                End Using
+            End Using
+        End Using
 
         ' RAM disponível
         Dim ramDisp As Long = CLng(ramCounter.NextValue())
         Dim ramUsada As Long = ramTotal - ramDisp
         Dim ramPercent As Double = If(ramTotal > 0, ramUsada / ramTotal * 100, 0)
 
-        ' Processador e RAM total (primeiro CPU)
+        ' Processador (primeiro CPU)
         Dim cpuNome As String = ""
-        For Each cpu As ManagementObject In New ManagementObjectSearcher("SELECT Name FROM Win32_Processor").Get()
-            cpuNome = WmiStr(cpu, "Name")
-            Exit For
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT Name FROM Win32_Processor"), results As ManagementObjectCollection = searcher.Get()
+            For Each cpu As ManagementObject In results
+                Using cpu
+                    cpuNome = WmiStr(cpu, "Name")
+                End Using
+                Exit For
+            Next
+        End Using
 
         ' Atualiza StatusBar
         statusbar1.Text = $"CPU: {cpuNome} | Uso CPU: {cpuUso:0.0}% | RAM: {FormatSize2(ramTotal)} | Usada: {FormatSize2(ramUsada)} ({ramPercent:0.0}%)"
@@ -126,21 +166,372 @@ Public Class Form1
 
     End Function
 
+    ' ===== Monta o ImageList usando ícones nativos do Shell do Windows =====
+    ' ===== Monta o ImageList usando ícones nativos do Shell do Windows =====
+    Private Sub InitListViewIcons()
+        lvIconList = New ImageList()
+        lvIconList.ImageSize = New Size(16, 16)
+        lvIconList.ColorDepth = ColorDepth.Depth32Bit
+
+        ' Ícones base
+        AddStockIconToList("cpu", SHSTOCKICONID.SIID_PROCESSOR)
+        AddStockIconToList("ram", SHSTOCKICONID.SIID_MEMORY)
+        AddStockIconToList("gpu", SHSTOCKICONID.SIID_COMPUTER)
+        AddStockIconToList("mb", SHSTOCKICONID.SIID_COMPUTER)
+        AddStockIconToList("os", SHSTOCKICONID.SIID_COMPUTER)
+        AddStockIconToList("network", SHSTOCKICONID.SIID_DRIVENET)
+        AddStockIconToList("storage", SHSTOCKICONID.SIID_DRIVEFIXED)
+        AddStockIconToList("pnp", SHSTOCKICONID.SIID_USB)
+        AddStockIconToList("bus", SHSTOCKICONID.SIID_USB)
+        AddStockIconToList("info", SHSTOCKICONID.SIID_INFO)
+        AddStockIconToList("warning", SHSTOCKICONID.SIID_WARNING)
+        AddStockIconToList("folder", SHSTOCKICONID.SIID_FOLDER)
+
+        ' CORREÇÃO CRÍTICA PARA O TREEVIEW: Criação das chaves em falta associando a ícones nativos equivalentes
+        AddStockIconToList("report", SHSTOCKICONID.SIID_DOCASSOC)    ' Documento/Relatório
+        AddStockIconToList("chip", SHSTOCKICONID.SIID_MEMORY)       ' Chips dos slots de RAM
+        AddStockIconToList("nic", SHSTOCKICONID.SIID_DRIVENET)       ' Placas de rede individuais
+
+        ' Vincula a lista de imagens a ambos os controlos
+        LVdetalhes.SmallImageList = ImageList1
+        TVdispositivos.ImageList = ImageList1
+    End Sub
+
+    Private Sub AddStockIconToList(key As String, siid As SHSTOCKICONID)
+        Try
+            Dim ico = GetStockIcon(siid, True)
+            If ico IsNot Nothing AndAlso Not lvIconList.Images.ContainsKey(key) Then
+                lvIconList.Images.Add(key, ico)
+            End If
+        Catch
+            ' Se o ícone stock não puder ser obtido (SO antigo, tema custom etc.),
+            ' a linha simplesmente fica sem ícone — não deve travar a UI.
+        End Try
+    End Sub
+
+    ' ===== Define o título do formulário com Processador + Nome da Máquina =====
+    Private Sub SetFormTitle()
+        Dim cpuNome As String = "Processador desconhecido"
+
+        Try
+            Using searcher As New ManagementObjectSearcher("SELECT Name FROM Win32_Processor"), results As ManagementObjectCollection = searcher.Get()
+                For Each cpu As ManagementObject In results
+                    Using cpu
+                        cpuNome = WmiStr(cpu, "Name", cpuNome).Trim()
+                    End Using
+                    Exit For
+                Next
+            End Using
+        Catch
+            ' Mantém o texto padrão caso a consulta WMI falhe
+        End Try
+
+        Me.Text = $"{cpuNome} — {Environment.MachineName}"
+    End Sub
 
 
+
+
+    ' ===== MODO CLI: se o app receber parâmetros, roda headless (sem exibir a janela) =====
+    Protected Overrides Sub OnLoad(e As EventArgs)
+        Dim cliArgs = My.Application.CommandLineArgs.ToArray()
+
+        If cliArgs.Length > 0 Then
+            ' Evita qualquer flash de janela antes de processar o comando
+            Me.Opacity = 0
+            Me.ShowInTaskbar = False
+            Me.WindowState = FormWindowState.Minimized
+
+            Try
+                RunCliMode(cliArgs)
+            Finally
+                ' FIX: garante que todo o buffer de saída seja escoado para o console antes
+                ' do Environment.Exit encerrar o processo abruptamente (sem rodar finalizers),
+                ' mesmo que RunCliMode lance uma exceção não tratada no meio do caminho.
+                Console.Out.Flush()
+                Console.Error.Flush()
+            End Try
+
+            Environment.Exit(0)
+            Return
+        End If
+
+        MyBase.OnLoad(e)
+    End Sub
 
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         LVdetalhes.View = View.Details
         LVdetalhes.Columns.Add("Propriedade", 220)
         LVdetalhes.Columns.Add("Valor", 450)
+        InitListViewIcons()
+        SetFormTitle()
         BuildTree()
         TVdispositivos.SelectedNode = TVdispositivos.Nodes(0)
         InitStatusBar()
 
 
     End Sub
-    Private Sub BuildTree()
 
+    ' FIX: libera os PerformanceCounter, o Timer e o ImageList ao fechar o formulário
+    Protected Overrides Sub OnFormClosing(e As FormClosingEventArgs)
+        statusTimer?.Stop()
+        statusTimer?.Dispose()
+        cpuCounter?.Dispose()
+        ramCounter?.Dispose()
+        lvIconList?.Dispose()
+        MyBase.OnFormClosing(e)
+    End Sub
+
+    ' ================================================================
+    ' =====================  MODO CLI (console)  ====================
+    ' ================================================================
+
+    ' Anexa ao console do processo pai (cmd/PowerShell) ou cria um novo,
+    ' e redireciona Console.Out/Error para ele.
+    Private Sub EnsureConsole()
+        If Not AttachConsole(ATTACH_PARENT_PROCESS) Then
+            AllocConsole()
+        End If
+
+        Dim stdOut As New StreamWriter(Console.OpenStandardOutput())
+        stdOut.AutoFlush = True
+        Console.SetOut(stdOut)
+
+        Dim stdErr As New StreamWriter(Console.OpenStandardError())
+        stdErr.AutoFlush = True
+        Console.SetError(stdErr)
+    End Sub
+
+    Private Sub RunCliMode(args As String())
+        EnsureConsole()
+
+        Dim asJson = args.Any(Function(a) a.Equals("--json", StringComparison.OrdinalIgnoreCase))
+        Dim wantsHelp = args.Any(Function(a) a.Equals("--help", StringComparison.OrdinalIgnoreCase) OrElse a = "-h" OrElse a = "/?")
+
+        If wantsHelp Then
+            PrintUsage()
+            Return
+        End If
+
+        ' ----- Modo relatório -----
+        Dim temReport = args.Any(Function(a) a.Equals("--report", StringComparison.OrdinalIgnoreCase) OrElse a.Equals("-report", StringComparison.OrdinalIgnoreCase))
+        If temReport Then
+            RunCliReport(args, asJson)
+            Return
+        End If
+
+        ' ----- Modo consulta pontual -----
+        ' FIX: aceita o comando com "--", "-" ou sem prefixo nenhum (ex: --network, -network, network)
+        Dim categoria = args.FirstOrDefault(Function(a) Not a.Equals("--json", StringComparison.OrdinalIgnoreCase))
+
+        If categoria Is Nothing Then
+            Console.Error.WriteLine("Nenhuma categoria reconhecida. Use --help para ver as opções.")
+            PrintUsage()
+            Return
+        End If
+
+        Dim chave = categoria.TrimStart("-"c).ToLowerInvariant()
+        Dim tituloCategoria As String
+
+        Select Case chave
+            Case "cpu"
+                ShowCPU() : tituloCategoria = "Processador"
+            Case "ram"
+                ShowRAMResumo() : tituloCategoria = "Memória RAM"
+            Case "gpu"
+                ShowGPUResumo() : tituloCategoria = "Placa de Vídeo"
+            Case "mb", "motherboard", "placa-mae"
+                ShowMotherboard() : tituloCategoria = "Placa-mãe"
+            Case "rede", "network"
+                ShowNetworkResumo() : tituloCategoria = "Rede"
+            Case "pnp"
+                ShowPnpResumo() : tituloCategoria = "Dispositivos Plug and Play"
+            Case "os", "sistema"
+                ShowSistemaResumo() : tituloCategoria = "Sistema Operacional"
+            Case "dispositivos"
+                ShowDispositivosResumo() : tituloCategoria = "Dispositivos"
+            Case "resumo", "all", "systeminfo"
+                ShowResumo() : tituloCategoria = "Resumo do Sistema"
+            Case "biosinfo", "bios"
+                ShowBiosInfo() : tituloCategoria = "BIOS"
+            Case "checktpm", "tpm"
+                ShowTpmInfo() : tituloCategoria = "TPM"
+            Case "checkvirtualization", "virtualizacao", "virtualization"
+                ShowVirtualizationInfo() : tituloCategoria = "Virtualização"
+            Case Else
+                Console.Error.WriteLine($"Categoria desconhecida: {categoria}")
+                PrintUsage()
+                Return
+        End Select
+
+        If asJson Then
+            Console.WriteLine(BuildJsonFromListView(tituloCategoria))
+        Else
+            PrintTextTable(tituloCategoria)
+        End If
+    End Sub
+
+    Private Sub RunCliReport(args As String(), asJson As Boolean)
+        BuildTree()
+
+        Dim outPath As String = Nothing
+        Dim idxOut = Array.IndexOf(args, "--out")
+        If idxOut >= 0 AndAlso idxOut + 1 < args.Length Then
+            outPath = args(idxOut + 1)
+        End If
+
+        If asJson Then
+            Dim json = BuildJsonReport()
+            Dim destino = If(outPath, Path.Combine(My.Computer.FileSystem.SpecialDirectories.MyDocuments, "Relatorio.json"))
+            Try
+                File.WriteAllText(destino, json, Encoding.UTF8)
+                Console.WriteLine($"Relatório JSON salvo em: {destino}")
+            Catch ex As Exception
+                Console.Error.WriteLine($"Erro ao salvar relatório JSON: {ex.Message}")
+            End Try
+        Else
+            ' Reaproveita a exportação HTML já existente (isAuto detecta "--report"/"-report" e não abre diálogos)
+            ExportReport(True, False, outPath)
+        End If
+    End Sub
+
+    Private Sub PrintUsage()
+        Console.WriteLine("Uso: <app>.exe [opção] [--json] [--out <arquivo>]")
+        Console.WriteLine("(o prefixo -- é opcional: --cpu, -cpu e cpu funcionam igual)")
+        Console.WriteLine()
+        Console.WriteLine("Consulta pontual (imprime no console):")
+        Console.WriteLine("  --resumo, --systeminfo    Resumo geral do sistema")
+        Console.WriteLine("  --cpu                     Informações do processador")
+        Console.WriteLine("  --ram                     Resumo de memória RAM")
+        Console.WriteLine("  --gpu                     Resumo de placa(s) de vídeo")
+        Console.WriteLine("  --mb                      Informações da placa-mãe")
+        Console.WriteLine("  --biosinfo                Informações do BIOS/UEFI")
+        Console.WriteLine("  --checktpm                Verifica presença/estado do TPM")
+        Console.WriteLine("  --checkvirtualization     Verifica VT-x/AMD-V, SLAT e Hyper-V")
+        Console.WriteLine("  --rede, --network         Resumo dos adaptadores de rede")
+        Console.WriteLine("  --pnp                     Resumo de dispositivos Plug and Play")
+        Console.WriteLine("  --os                      Resumo do sistema operacional")
+        Console.WriteLine("  --dispositivos            Resumo geral de hardware")
+        Console.WriteLine()
+        Console.WriteLine("Relatório completo:")
+        Console.WriteLine("  --report                    Gera o relatório completo (HTML) em Documentos")
+        Console.WriteLine("  --report --out <arquivo>    Salva o relatório no caminho informado")
+        Console.WriteLine("  --report --json             Gera o relatório em JSON em vez de HTML")
+        Console.WriteLine()
+        Console.WriteLine("Outras opções:")
+        Console.WriteLine("  --json            Formata a saída (consulta ou relatório) como JSON")
+        Console.WriteLine("  --help, -h, /?    Mostra esta ajuda")
+    End Sub
+
+    Private Sub PrintTextTable(titulo As String)
+        Console.WriteLine()
+        Console.WriteLine($"=== {titulo.ToUpperInvariant()} ===")
+        Console.WriteLine()
+
+        If LVdetalhes.Items.Count = 0 Then
+            Console.WriteLine("(nenhuma informação encontrada)")
+            Return
+        End If
+
+        Dim maxNome = LVdetalhes.Items.Cast(Of ListViewItem)().Max(Function(i) i.Text.Length)
+        maxNome = Math.Max(maxNome, "Propriedade".Length)
+
+        Console.WriteLine("Propriedade".PadRight(maxNome) & "  Valor")
+        Console.WriteLine(New String("-"c, maxNome) & "  " & New String("-"c, 40))
+
+        For Each item As ListViewItem In LVdetalhes.Items
+            Console.WriteLine(item.Text.PadRight(maxNome) & "  " & item.SubItems(1).Text)
+        Next
+
+        Console.WriteLine()
+    End Sub
+
+    Private Function BuildJsonFromListView(categoria As String) As String
+        Dim sb As New StringBuilder()
+        sb.Append("{")
+        sb.Append($"""categoria"":""{JsonEscape(categoria)}"",")
+        sb.Append("""itens"":[")
+
+        Dim first = True
+        For Each item As ListViewItem In LVdetalhes.Items
+            If Not first Then sb.Append(",")
+            first = False
+            sb.Append("{")
+            sb.Append($"""propriedade"":""{JsonEscape(item.Text)}"",")
+            sb.Append($"""valor"":""{JsonEscape(item.SubItems(1).Text)}""")
+            sb.Append("}")
+        Next
+
+        sb.Append("]}")
+        Return sb.ToString()
+    End Function
+
+    Private Function BuildJsonReport() As String
+        Dim sb As New StringBuilder()
+        sb.Append("{")
+        sb.Append($"""computador"":""{JsonEscape(Environment.MachineName)}"",")
+        sb.Append($"""usuario"":""{JsonEscape(Environment.UserName)}"",")
+        sb.Append($"""dataHora"":""{JsonEscape(DateTime.Now.ToString("s"))}"",")
+        sb.Append("""categorias"":[")
+
+        Dim first = True
+        For Each node As TreeNode In TVdispositivos.Nodes
+            If Not first Then sb.Append(",")
+            first = False
+            sb.Append(BuildJsonNode(node))
+        Next
+
+        sb.Append("]}")
+        Return sb.ToString()
+    End Function
+
+    ' Espelha a mesma recursão de AppendNodeHtmlFull, só que gerando JSON em vez de HTML
+    Private Function BuildJsonNode(node As TreeNode) As String
+        LVdetalhes.Items.Clear()
+        TVdispositivos.SelectedNode = node
+        tvDispositivos_AfterSelect(Me, New TreeViewEventArgs(node))
+
+        Dim sb As New StringBuilder()
+        sb.Append("{")
+        sb.Append($"""nome"":""{JsonEscape(node.Text)}"",")
+        sb.Append("""itens"":[")
+
+        Dim first = True
+        For Each item As ListViewItem In LVdetalhes.Items
+            If Not first Then sb.Append(",")
+            first = False
+            sb.Append("{")
+            sb.Append($"""propriedade"":""{JsonEscape(item.Text)}"",")
+            sb.Append($"""valor"":""{JsonEscape(item.SubItems(1).Text)}""")
+            sb.Append("}")
+        Next
+        sb.Append("]")
+
+        If node.Nodes.Count > 0 Then
+            sb.Append(",""filhos"":[")
+            Dim firstChild = True
+            For Each child As TreeNode In node.Nodes
+                If Not firstChild Then sb.Append(",")
+                firstChild = False
+                sb.Append(BuildJsonNode(child))
+            Next
+            sb.Append("]")
+        End If
+
+        sb.Append("}")
+        Return sb.ToString()
+    End Function
+
+    Private Function JsonEscape(s As String) As String
+        If s Is Nothing Then Return ""
+        Return s.Replace("\", "\\").Replace("""", "\""").Replace(vbCr, "").Replace(vbLf, " ")
+    End Function
+
+    ' ================================================================
+    ' =================  FIM DO MODO CLI (console)  =================
+    ' ================================================================
+
+    Private Sub BuildTree()
         TVdispositivos.Nodes.Clear()
 
         ' ===== ROOTS =====
@@ -156,22 +547,21 @@ Public Class Form1
 
         Dim rootSistema = TVdispositivos.Nodes.Add("Sistema")
         rootSistema.Tag = "SISTEMA"
-        rootSistema.ImageKey = "folder"        ' Ícone do software/sistema
+        rootSistema.ImageKey = "folder"
         rootSistema.SelectedImageKey = "folder"
 
-        ' Sistema Operacional
-        rootSistema.Nodes.Add("Sistema Operacional").Tag = "OS"
+        ' CORREÇÃO: Definindo explicitamente as chaves para não pegar ícones aleatórios por índice padrão
+        Dim nodeOS = rootSistema.Nodes.Add("Sistema Operacional")
+        nodeOS.Tag = "OS" : nodeOS.ImageKey = "os" : nodeOS.SelectedImageKey = "os"
 
-        ' Programas Instalados
-        rootSistema.Nodes.Add("Programas Instalados").Tag = "PROGRAMAS"
+        Dim nodeProg = rootSistema.Nodes.Add("Programas Instalados")
+        nodeProg.Tag = "PROGRAMAS" : nodeProg.ImageKey = "os" : nodeProg.SelectedImageKey = "os"
 
-        ' Drivers
-        rootSistema.Nodes.Add("Drivers Instalados").Tag = "DRIVERS"
+        Dim nodeDrivers = rootSistema.Nodes.Add("Drivers Instalados")
+        nodeDrivers.Tag = "DRIVERS" : nodeDrivers.ImageKey = "pnp" : nodeDrivers.SelectedImageKey = "pnp"
 
-        ' Atualizações
-        rootSistema.Nodes.Add("Atualizações").Tag = "UPDATES"
-
-
+        Dim nodeUpdates = rootSistema.Nodes.Add("Atualizações")
+        nodeUpdates.Tag = "UPDATES" : nodeUpdates.ImageKey = "info" : nodeUpdates.SelectedImageKey = "info"
 
         ' ===== PROCESSADOR =====
         Dim cpuNode = rootDisp.Nodes.Add("Processador")
@@ -190,65 +580,85 @@ Public Class Form1
         ramResumo.ImageKey = "report"
         ramResumo.SelectedImageKey = "report"
 
-        For Each m As ManagementObject In New ManagementObjectSearcher(
-        "SELECT BankLabel FROM Win32_PhysicalMemory").Get()
-
-            Dim banco = WmiStr(m, "BankLabel", "Slot desconhecido")
-            Dim slotNode = ramNode.Nodes.Add(banco)
-            slotNode.Tag = "RAM_SLOT"
-            slotNode.ImageKey = "chip"
-            slotNode.SelectedImageKey = "chip"
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT BankLabel FROM Win32_PhysicalMemory"), results As ManagementObjectCollection = searcher.Get()
+            For Each m As ManagementObject In results
+                Using m
+                    Dim banco = WmiStr(m, "BankLabel", "Slot desconhecido")
+                    Dim slotNode = ramNode.Nodes.Add(banco)
+                    slotNode.Tag = "RAM_SLOT"
+                    slotNode.ImageKey = "chip"       ' Vinculado ao chip de memória adicionado
+                    slotNode.SelectedImageKey = "chip"
+                End Using
+            Next
+        End Using
 
         ' ===== PLACA-MÃE =====
         Dim mbNode = rootDisp.Nodes.Add("Placa-mãe")
         mbNode.Tag = "MB"
         mbNode.ImageKey = "mb"
         mbNode.SelectedImageKey = "mb"
+
+        Dim biosNode = mbNode.Nodes.Add("BIOS / UEFI")
+        biosNode.Tag = "BIOS_INFO"
+        biosNode.ImageKey = "mb"
+        biosNode.SelectedImageKey = "mb"
+
+        Dim tpmNode = mbNode.Nodes.Add("TPM")
+        tpmNode.Tag = "TPM_INFO"
+        tpmNode.ImageKey = "info"
+        tpmNode.SelectedImageKey = "info"
+
+        Dim virtNode = mbNode.Nodes.Add("Virtualização")
+        virtNode.Tag = "VIRT_INFO"
+        virtNode.ImageKey = "cpu"
+        virtNode.SelectedImageKey = "cpu"
+
         ' ===== GPU / VÍDEO =====
         Dim gpuNode = rootDisp.Nodes.Add("Placa de Vídeo")
         gpuNode.Tag = "GPU"
         gpuNode.ImageKey = "gpu"
         gpuNode.SelectedImageKey = "gpu"
 
-        For Each gpu As ManagementObject In New ManagementObjectSearcher(
-    "SELECT Name FROM Win32_VideoController").Get()
+        Using searcher As New ManagementObjectSearcher("SELECT Name FROM Win32_VideoController"), results As ManagementObjectCollection = searcher.Get()
+            For Each gpu As ManagementObject In results
+                Using gpu
+                    Dim nome = WmiStr(gpu, "Name", "GPU desconhecida")
+                    Dim n = gpuNode.Nodes.Add(nome)
+                    n.Tag = "GPU_ITEM"
+                    n.ImageKey = "gpu"
+                    n.SelectedImageKey = "gpu"
+                End Using
+            Next
+        End Using
 
-            Dim nome = WmiStr(gpu, "Name", "GPU desconhecida")
-            Dim n = gpuNode.Nodes.Add(nome)
-            n.Tag = "GPU_ITEM"
-            n.ImageKey = "gpu"
-            n.SelectedImageKey = "gpu"
-        Next
         ' ===== REDE =====
         Dim redeNode = rootDisp.Nodes.Add("Rede")
         redeNode.Tag = "REDE"
-        redeNode.ImageKey = "network"          ' Chave do ícone no ImageList
+        redeNode.ImageKey = "network"
         redeNode.SelectedImageKey = "network"
 
-        ' ===== Sub-nodes para cada adaptador =====
-        For Each nic As ManagementObject In New ManagementObjectSearcher(
-    "SELECT * FROM Win32_NetworkAdapter").Get()
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_NetworkAdapter"), results As ManagementObjectCollection = searcher.Get()
+            For Each nic As ManagementObject In results
+                Using nic
+                    If Not IsWantedNetworkAdapter(nic) Then Continue For
 
-            Dim nome = WmiStr(nic, "Name")
-            Dim status As String
+                    Dim nome = WmiStr(nic, "Name")
+                    Dim status As String
+                    If WmiBool(nic, "NetEnabled") Then
+                        status = "Ativo"
+                    ElseIf String.IsNullOrEmpty(WmiStr(nic, "PNPDeviceID")) Then
+                        status = "Sem driver"
+                    Else
+                        status = "Desativado"
+                    End If
 
-            If WmiBool(nic, "NetEnabled") Then
-                status = "Ativo"
-            ElseIf String.IsNullOrEmpty(WmiStr(nic, "PNPDeviceID")) Then
-                status = "Sem driver"
-            Else
-                status = "Desativado"
-            End If
-
-            Dim node = redeNode.Nodes.Add($"{nome} ({status})")
-            node.Tag = WmiStr(nic, "DeviceID")
-            node.ImageKey = "nic"              ' Ícone específico para NIC
-            node.SelectedImageKey = "nic"
-        Next
-
-
-
+                    Dim node = redeNode.Nodes.Add($"{nome} ({status})")
+                    node.Tag = WmiStr(nic, "DeviceID")
+                    node.ImageKey = "nic"            ' Vinculado ao ícone individual corrigido
+                    node.SelectedImageKey = "nic"
+                End Using
+            Next
+        End Using
 
         ' ===== DISPOSITIVOS PnP =====
         Dim pnpRoot = rootDisp.Nodes.Add("Dispositivos Plug and Play")
@@ -258,55 +668,47 @@ Public Class Form1
 
         Dim barramentos As New Dictionary(Of String, TreeNode)
 
-        For Each dev As ManagementObject In New ManagementObjectSearcher(
-    "SELECT * FROM Win32_PnPEntity WHERE Present = TRUE AND PNPDeviceID IS NOT NULL").Get()
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_PnPEntity WHERE Present = TRUE AND PNPDeviceID IS NOT NULL"), results As ManagementObjectCollection = searcher.Get()
+            For Each dev As ManagementObject In results
+                Using dev
+                    Dim pnpId = WmiStr(dev, "PNPDeviceID")
+                    If Not IsRealPnPDevice(pnpId) Then Continue For
 
-            Dim pnpId As String = WmiStr(dev, "PNPDeviceID")
-            If Not IsRealPnPDevice(pnpId) Then Continue For
+                    Dim nome = WmiStr(dev, "Name", "Dispositivo desconhecido")
+                    If String.IsNullOrEmpty(nome) Then Continue For
 
-            Dim nome As String = WmiStr(dev, "Name", "Dispositivo desconhecido")
-            If String.IsNullOrEmpty(nome) Then Continue For
+                    Dim barramento = GetBusFromPNP(pnpId)
 
-            Dim barramento As String = GetBusFromPNP(pnpId)
+                    If Not barramentos.ContainsKey(barramento) Then
+                        Dim busNode = pnpRoot.Nodes.Add(barramento)
+                        busNode.Tag = "PNP_BUS"
 
-            ' cria nó do barramento se não existir
-            If Not barramentos.ContainsKey(barramento) Then
-                Dim busNode = pnpRoot.Nodes.Add(barramento)
-                busNode.Tag = "PNP_BUS"
+                        Dim iconKey = GetBusIconKey(barramento)
+                        busNode.ImageKey = iconKey
+                        busNode.SelectedImageKey = iconKey
 
-                Dim iconKey = GetBusIconKey(barramento)
-                busNode.ImageKey = iconKey
-                busNode.SelectedImageKey = iconKey
+                        barramentos(barramento) = busNode
+                    End If
 
-                barramentos(barramento) = busNode
-            End If
+                    Dim estado = GetDeviceState(dev)
+                    Dim devNode = barramentos(barramento).Nodes.Add(nome)
+                    devNode.Tag = pnpId
 
-            ' adiciona o dispositivo
-            Dim estado As String = GetDeviceState(dev)
+                    Dim baseIcon = GetBusIconKey(barramento)
+                    devNode.ImageKey = baseIcon
+                    devNode.SelectedImageKey = baseIcon
 
-            Dim devNode = barramentos(barramento).Nodes.Add(nome)
-            devNode.Tag = pnpId
-
-            ' ícone base do dispositivo (ex: barramento ou genérico)
-            Dim baseIcon As String = GetBusIconKey(barramento)
-            devNode.ImageKey = baseIcon
-            devNode.SelectedImageKey = baseIcon
-
-            ' aplica ícone de estado SOMENTE se não for OK
-            Dim stateIcon As String = GetStateIconKey(estado)
-            If Not String.IsNullOrEmpty(stateIcon) Then
-                devNode.ImageKey = stateIcon
-                devNode.SelectedImageKey = stateIcon
-            End If
-
-
-        Next
-
+                    Dim stateIcon = GetStateIconKey(estado)
+                    If Not String.IsNullOrEmpty(stateIcon) Then
+                        devNode.ImageKey = stateIcon
+                        devNode.SelectedImageKey = stateIcon
+                    End If
+                End Using
+            Next
+        End Using
 
         rootResumo.Expand()
         rootDisp.Expand()
-
-
     End Sub
 
 
@@ -350,11 +752,29 @@ Public Class Form1
             Case "RESUMO"
                 ShowResumo()
 
+            Case "DISPOSITIVOS"
+                ShowDispositivosResumo()
+
+            Case "PNP"
+                ShowPnpResumo()
+
+            Case "PNP_BUS"
+                ShowPnpBusResumo(e.Node.Text)
+
             Case "CPU"
                 ShowCPU()
 
             Case "MB"
                 ShowMotherboard()
+
+            Case "BIOS_INFO"
+                ShowBiosInfo()
+
+            Case "TPM_INFO"
+                ShowTpmInfo()
+
+            Case "VIRT_INFO"
+                ShowVirtualizationInfo()
 
             Case "RAM"
                 ShowRAMResumo()
@@ -376,46 +796,49 @@ Public Class Form1
                 ShowNetworkResumo()
 
             Case "SISTEMA"
-                        ' Node raiz: talvez resumo geral de software
-                        ShowSistemaResumo()
+                ' Node raiz: talvez resumo geral de software
+                ShowSistemaResumo()
 
             Case "OS"
                 ShowOSDetails()
 
-                    Case "PROGRAMAS"
-                        ShowInstalledPrograms()
+            Case "PROGRAMAS"
+                ShowInstalledPrograms()
 
-                    Case "DRIVERS"
-                        ShowInstalledDrivers()
+            Case "DRIVERS"
+                ShowInstalledDrivers()
 
-                    Case "UPDATES"
-                        ShowSystemUpdates()
+            Case "UPDATES"
+                ShowSystemUpdates()
 
 
-                    Case Else
-                        ' PnP → Tag contém DeviceID
-                        If CStr(e.Node.Parent?.Tag) <> "PNP" AndAlso
-                       CStr(e.Node.Parent?.Parent?.Tag) = "PNP" Then
-                            ShowPnPDevice(e.Node.Tag.ToString())
-                            ShowPnPDriver(e.Node.Tag.ToString())
-                        End If
+            Case Else
+                ' PnP → Tag contém DeviceID
+                If CStr(e.Node.Parent?.Tag) <> "PNP" AndAlso
+               CStr(e.Node.Parent?.Parent?.Tag) = "PNP" Then
+                    ShowPnPDevice(e.Node.Tag.ToString())
+                    ShowPnPDriver(e.Node.Tag.ToString())
+                End If
 
-                        ' Rede → clique em adaptador específico
-                        If CStr(e.Node.Parent?.Tag) = "REDE" Then
-                            ShowNetworkAdapter(e.Node.Tag.ToString())
-                        End If
-                End Select
+                ' Rede → clique em adaptador específico
+                If CStr(e.Node.Parent?.Tag) = "REDE" Then
+                    ShowNetworkAdapter(e.Node.Tag.ToString())
+                End If
+        End Select
     End Sub
     Private Sub ShowSistemaResumo()
         LVdetalhes.Items.Clear()
+        currentIconKey = "os"
 
         ' ===== SISTEMA OPERACIONAL =====
-        For Each os As ManagementObject In New ManagementObjectSearcher(
-        "SELECT Caption, Version, BuildNumber FROM Win32_OperatingSystem").Get()
-
-            AddDetail("Sistema Operacional", $"{WmiStr(os, "Caption")} {WmiStr(os, "Version")} (Build {WmiStr(os, "BuildNumber")})")
-            Exit For
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT Caption, Version, BuildNumber FROM Win32_OperatingSystem"), results As ManagementObjectCollection = searcher.Get()
+            For Each os As ManagementObject In results
+                Using os
+                    AddDetail("Sistema Operacional", $"{WmiStr(os, "Caption")} {WmiStr(os, "Version")} (Build {WmiStr(os, "BuildNumber")})")
+                End Using
+                Exit For
+            Next
+        End Using
 
         ' ===== PROGRAMAS INSTALADOS =====
         Dim totalProgramas As Integer = 0
@@ -436,39 +859,50 @@ Public Class Form1
 
         ' ===== DRIVERS =====
         Dim totalDrivers As Integer = 0
-        For Each drv As ManagementObject In New ManagementObjectSearcher(
-        "SELECT DeviceName FROM Win32_PnPSignedDriver").Get()
-            totalDrivers += 1
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT DeviceName FROM Win32_PnPSignedDriver"), results As ManagementObjectCollection = searcher.Get()
+            For Each drv As ManagementObject In results
+                Using drv
+                    totalDrivers += 1
+                End Using
+            Next
+        End Using
 
         AddDetail("Drivers Instalados", $"{totalDrivers} drivers encontrados")
 
         ' ===== ATUALIZAÇÕES =====
         Dim totalUpdates As Integer = 0
-        For Each update As ManagementObject In New ManagementObjectSearcher(
-        "SELECT HotFixID FROM Win32_QuickFixEngineering").Get()
-            totalUpdates += 1
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT HotFixID FROM Win32_QuickFixEngineering"), results As ManagementObjectCollection = searcher.Get()
+            For Each update As ManagementObject In results
+                Using update
+                    totalUpdates += 1
+                End Using
+            Next
+        End Using
 
         AddDetail("Atualizações Aplicadas", $"{totalUpdates} atualizações instaladas")
     End Sub
 
     Private Sub ShowOSDetails()
-        For Each os As ManagementObject In New ManagementObjectSearcher(
-        "SELECT Caption, Version, BuildNumber, InstallDate FROM Win32_OperatingSystem").Get()
+        currentIconKey = "os"
+        Using searcher As New ManagementObjectSearcher(
+        "SELECT Caption, Version, BuildNumber, InstallDate FROM Win32_OperatingSystem"), results As ManagementObjectCollection = searcher.Get()
+            For Each os As ManagementObject In results
+                Using os
+                    Dim dataInstalacao = WmiStr(os, "InstallDate")
+                    Dim dataFmt = If(dataInstalacao.Length >= 8,
+                                 $"{dataInstalacao.Substring(0, 4)}-{dataInstalacao.Substring(4, 2)}-{dataInstalacao.Substring(6, 2)}",
+                                 "Desconhecida")
 
-            Dim dataInstalacao = WmiStr(os, "InstallDate")
-            Dim dataFmt = If(dataInstalacao.Length >= 8,
-                         $"{dataInstalacao.Substring(0, 4)}-{dataInstalacao.Substring(4, 2)}-{dataInstalacao.Substring(6, 2)}",
-                         "Desconhecida")
-
-            AddDetail("Sistema Operacional", $"{WmiStr(os, "Caption")} {WmiStr(os, "Version")} (Build {WmiStr(os, "BuildNumber")})")
-            AddDetail("Caminho do Sistema", Environment.GetFolderPath(Environment.SpecialFolder.Windows))
-            AddDetail("Data de Instalação", dataFmt)
-            Exit For
-        Next
+                    AddDetail("Sistema Operacional", $"{WmiStr(os, "Caption")} {WmiStr(os, "Version")} (Build {WmiStr(os, "BuildNumber")})")
+                    AddDetail("Caminho do Sistema", Environment.GetFolderPath(Environment.SpecialFolder.Windows))
+                    AddDetail("Data de Instalação", dataFmt)
+                End Using
+                Exit For
+            Next
+        End Using
     End Sub
     Private Sub ShowInstalledPrograms()
+        currentIconKey = "os"
         ' Consulta registry (64 e 32-bit)
         Dim uninstallKeys = {
         "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -480,10 +914,13 @@ Public Class Form1
                 If regKey IsNot Nothing Then
                     For Each subKeyName In regKey.GetSubKeyNames()
                         Using subKey = regKey.OpenSubKey(subKeyName)
-                            Dim nome = subKey.GetValue("DisplayName")
-                            Dim versao = subKey.GetValue("DisplayVersion")
-                            If nome IsNot Nothing Then
-                                AddDetail("Programa", $"{nome} {If(versao, "")}")
+                            ' FIX: subKey pode vir Nothing (chave removida/inacessível entre a listagem e a abertura)
+                            If subKey IsNot Nothing Then
+                                Dim nome = subKey.GetValue("DisplayName")
+                                Dim versao = subKey.GetValue("DisplayVersion")
+                                If nome IsNot Nothing Then
+                                    AddDetail("Programa", $"{nome} {If(versao, "")}")
+                                End If
                             End If
                         End Using
                     Next
@@ -492,116 +929,175 @@ Public Class Form1
         Next
     End Sub
     Private Sub ShowInstalledDrivers()
-        For Each drv As ManagementObject In New ManagementObjectSearcher(
-        "SELECT DeviceName, DriverVersion, Manufacturer, DriverDate FROM Win32_PnPSignedDriver").Get()
-
-            AddDetail("Driver",
-                  $"{WmiStr(drv, "DeviceName")} — {WmiStr(drv, "Manufacturer")} v{WmiStr(drv, "DriverVersion")} ({WmiStr(drv, "DriverDate")})")
-        Next
+        currentIconKey = "pnp"
+        Using searcher As New ManagementObjectSearcher(
+        "SELECT DeviceName, DriverVersion, Manufacturer, DriverDate FROM Win32_PnPSignedDriver"), results As ManagementObjectCollection = searcher.Get()
+            For Each drv As ManagementObject In results
+                Using drv
+                    AddDetail("Driver",
+                          $"{WmiStr(drv, "DeviceName")} — {WmiStr(drv, "Manufacturer")} v{WmiStr(drv, "DriverVersion")} ({WmiStr(drv, "DriverDate")})")
+                End Using
+            Next
+        End Using
     End Sub
     Private Sub ShowSystemUpdates()
-        For Each update As ManagementObject In New ManagementObjectSearcher(
-        "SELECT HotFixID, InstalledOn FROM Win32_QuickFixEngineering").Get()
-
-            AddDetail("Atualização",
-                  $"{WmiStr(update, "HotFixID")} — {WmiStr(update, "InstalledOn")}")
-        Next
+        currentIconKey = "os"
+        Using searcher As New ManagementObjectSearcher("SELECT HotFixID, InstalledOn FROM Win32_QuickFixEngineering"), results As ManagementObjectCollection = searcher.Get()
+            For Each update As ManagementObject In results
+                Using update
+                    AddDetail("Atualização",
+                          $"{WmiStr(update, "HotFixID")} — {WmiStr(update, "InstalledOn")}")
+                End Using
+            Next
+        End Using
     End Sub
 
     Private Sub ShowNetworkResumo()
         LVdetalhes.Items.Clear()
+        currentIconKey = "network"
 
-        For Each nic As ManagementObject In New ManagementObjectSearcher(
-        "SELECT * FROM Win32_NetworkAdapter").Get()
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_NetworkAdapter"), results As ManagementObjectCollection = searcher.Get()
+            For Each nic As ManagementObject In results
+                Using nic
+                    ' FIX: mesmo filtro aplicado na árvore, para o resumo bater com o que é exibido nela
+                    If Not IsWantedNetworkAdapter(nic) Then Continue For
 
-            Dim nome = WmiStr(nic, "Name")
-            Dim status As String
+                    Dim nome = WmiStr(nic, "Name")
+                    Dim status As String
 
-            If WmiBool(nic, "NetEnabled") Then
-                status = "Ativo"
-            ElseIf String.IsNullOrEmpty(WmiStr(nic, "PNPDeviceID")) Then
-                status = "Sem driver"
-            Else
-                status = "Desativado"
-            End If
+                    If WmiBool(nic, "NetEnabled") Then
+                        status = "Ativo"
+                    ElseIf String.IsNullOrEmpty(WmiStr(nic, "PNPDeviceID")) Then
+                        status = "Sem driver"
+                    Else
+                        status = "Desativado"
+                    End If
 
-            Dim tipo = WmiStr(nic, "AdapterType")
-            AddDetail($"{nome}", $"{tipo} — {status}")
-        Next
+                    Dim tipo = WmiStr(nic, "AdapterType")
+                    AddDetail($"{nome}", $"{tipo} — {status}")
+                End Using
+            Next
+        End Using
     End Sub
+
+    ' ===== Filtro: adaptadores físicos reais + VMs conhecidas, excluindo miniports do Windows =====
+    Private Function IsWantedNetworkAdapter(nic As ManagementObject) As Boolean
+
+        Dim nome = WmiStr(nic, "Name").ToLowerInvariant()
+        Dim fabricante = WmiStr(nic, "Manufacturer").ToLowerInvariant()
+
+        ' Blacklist: adaptadores virtuais/software do próprio Windows que não representam hardware real
+        Dim blacklist = {
+            "wan miniport", "isatap", "teredo", "6to4", "loopback",
+            "kernel debug", "microsoft wi-fi direct virtual adapter",
+            "microsoft network adapter multiplexor", "microsoft failover cluster virtual adapter",
+            "direct parallel", "qos packet scheduler", "bluetooth device (personal area network)",
+            "remote ndis", "microsoft wan miniport"
+        }
+        For Each termo In blacklist
+            If nome.Contains(termo) Then Return False
+        Next
+
+        ' Whitelist: adaptadores criados por hipervisores/máquinas virtuais conhecidas
+        Dim vmWhitelist = {"vmware", "virtualbox", "oracle", "hyper-v virtual ethernet adapter"}
+        For Each termo In vmWhitelist
+            If nome.Contains(termo) OrElse fabricante.Contains(termo) Then Return True
+        Next
+
+        ' Caso contrário, só é aceito se o Windows reportar como adaptador físico de fato
+        Return WmiBool(nic, "PhysicalAdapter")
+
+    End Function
 
     Private Sub ShowNetworkAdapter(deviceID As String)
         LVdetalhes.Items.Clear()
+        currentIconKey = "network"
 
-        Dim query = $"SELECT * FROM Win32_NetworkAdapter WHERE DeviceID='{deviceID}'"
-        For Each nic As ManagementObject In New ManagementObjectSearcher(query).Get()
-            Dim nome = WmiStr(nic, "Name")
-            Dim status As String = If(WmiBool(nic, "NetEnabled"), "Ativo", "Desativado")
-            Dim tipo = WmiStr(nic, "AdapterType")
-            Dim mac = WmiStr(nic, "MACAddress")
-            Dim speed = WmiLng(nic, "Speed")
+        ' FIX: escapa aspas simples para evitar quebrar a query WQL
+        Dim safeId = deviceID.Replace("'", "''")
+        Dim query = $"SELECT * FROM Win32_NetworkAdapter WHERE DeviceID='{safeId}'"
 
-            ' IPs → consulta separada via Win32_NetworkAdapterConfiguration
-            Dim ipList As New List(Of String)
-            For Each cfg As ManagementObject In New ManagementObjectSearcher(
-            $"SELECT * FROM Win32_NetworkAdapterConfiguration WHERE Index={WmiInt(nic, "Index")} AND IPEnabled=True").Get()
-                Dim ips = TryCast(cfg("IPAddress"), String())
-                If ips IsNot Nothing Then ipList.AddRange(ips)
+        Using searcher As New ManagementObjectSearcher(query), results As ManagementObjectCollection = searcher.Get()
+            For Each nic As ManagementObject In results
+                Using nic
+                    Dim nome = WmiStr(nic, "Name")
+                    Dim status As String = If(WmiBool(nic, "NetEnabled"), "Ativo", "Desativado")
+                    Dim tipo = WmiStr(nic, "AdapterType")
+                    Dim mac = WmiStr(nic, "MACAddress")
+                    Dim speed = WmiLng(nic, "Speed")
+
+                    ' IPs → consulta separada via Win32_NetworkAdapterConfiguration
+                    Dim ipList As New List(Of String)
+                    Using searcher2 As New ManagementObjectSearcher(
+                    $"SELECT * FROM Win32_NetworkAdapterConfiguration WHERE Index={WmiInt(nic, "Index")} AND IPEnabled=True"), resultsCfg As ManagementObjectCollection = searcher2.Get()
+                        For Each cfg As ManagementObject In resultsCfg
+                            Using cfg
+                                Dim ips = TryCast(cfg("IPAddress"), String())
+                                If ips IsNot Nothing Then ipList.AddRange(ips)
+                            End Using
+                        Next
+                    End Using
+
+                    AddDetail("Nome", nome)
+                    AddDetail("Status", status)
+                    AddDetail("Tipo", tipo)
+                    AddDetail("MAC", mac)
+                    AddDetail("Velocidade", If(speed > 0, $"{speed / 1_000_000} Mbps", "Desconhecida"))
+                    AddDetail("IPs", If(ipList.Count > 0, String.Join(" | ", ipList), "Nenhum"))
+                End Using
             Next
-
-            AddDetail("Nome", nome)
-            AddDetail("Status", status)
-            AddDetail("Tipo", tipo)
-            AddDetail("MAC", mac)
-            AddDetail("Velocidade", If(speed > 0, $"{speed / 1_000_000} Mbps", "Desconhecida"))
-            AddDetail("IPs", If(ipList.Count > 0, String.Join(" | ", ipList), "Nenhum"))
-        Next
+        End Using
     End Sub
 
     Private Sub ShowGPUResumo()
+        currentIconKey = "gpu"
 
-        For Each gpu As ManagementObject In New ManagementObjectSearcher(
-        "SELECT * FROM Win32_VideoController").Get()
-
-            AddDetail("Nome", WmiStr(gpu, "Name"))
-            AddDetail("Fabricante", WmiStr(gpu, "AdapterCompatibility"))
-            AddDetail("Memória de Vídeo", FormatBytes(WmiLng(gpu, "AdapterRAM")))
-            AddDetail("Driver", WmiStr(gpu, "DriverVersion"))
-            AddDetail("Status", WmiStr(gpu, "Status"))
-           
-
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_VideoController"), results As ManagementObjectCollection = searcher.Get()
+            For Each gpu As ManagementObject In results
+                Using gpu
+                    AddDetail("Nome", WmiStr(gpu, "Name"))
+                    AddDetail("Fabricante", WmiStr(gpu, "AdapterCompatibility"))
+                    AddDetail("Memória de Vídeo", FormatBytes(WmiLng(gpu, "AdapterRAM")))
+                    AddDetail("Driver", WmiStr(gpu, "DriverVersion"))
+                    AddDetail("Status", WmiStr(gpu, "Status"))
+                End Using
+            Next
+        End Using
 
     End Sub
     Private Sub ShowGPU(nomeGpu As String)
+        currentIconKey = "gpu"
 
-        For Each gpu As ManagementObject In New ManagementObjectSearcher(
-        "SELECT * FROM Win32_VideoController").Get()
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_VideoController"), results As ManagementObjectCollection = searcher.Get()
+            For Each gpu As ManagementObject In results
+                Using gpu
+                    If WmiStr(gpu, "Name") = nomeGpu Then
 
-            If WmiStr(gpu, "Name") = nomeGpu Then
+                        AddDetail("Nome", WmiStr(gpu, "Name"))
+                        AddDetail("Fabricante", WmiStr(gpu, "AdapterCompatibility"))
+                        AddDetail("Descrição", WmiStr(gpu, "Description"))
+                        AddDetail("Memória de Vídeo", FormatBytes(WmiLng(gpu, "AdapterRAM")))
+                        AddDetail("Resolução Atual", $"{WmiInt(gpu, "CurrentHorizontalResolution")} x {WmiInt(gpu, "CurrentVerticalResolution")}")
+                        AddDetail("Frequência", WmiStr(gpu, "CurrentRefreshRate") & " Hz")
+                        AddDetail("Driver", WmiStr(gpu, "DriverVersion"))
+                        AddDetail("Data do Driver", WmiStr(gpu, "DriverDate"))
+                        AddDetail("PNP Device ID", WmiStr(gpu, "PNPDeviceID"))
 
-                AddDetail("Nome", WmiStr(gpu, "Name"))
-                AddDetail("Fabricante", WmiStr(gpu, "AdapterCompatibility"))
-                AddDetail("Descrição", WmiStr(gpu, "Description"))
-                AddDetail("Memória de Vídeo", FormatBytes(WmiLng(gpu, "AdapterRAM")))
-                AddDetail("Resolução Atual", $"{WmiInt(gpu, "CurrentHorizontalResolution")} x {WmiInt(gpu, "CurrentVerticalResolution")}")
-                AddDetail("Frequência", WmiStr(gpu, "CurrentRefreshRate") & " Hz")
-                AddDetail("Driver", WmiStr(gpu, "DriverVersion"))
-                AddDetail("Data do Driver", WmiStr(gpu, "DriverDate"))
-                AddDetail("PNP Device ID", WmiStr(gpu, "PNPDeviceID"))
-
-
-                Exit Sub
-            End If
-        Next
+                        Exit Sub
+                    End If
+                End Using
+            Next
+        End Using
 
     End Sub
     Private Function WmiLng(obj As ManagementBaseObject, prop As String) As Long
+        If obj Is Nothing Then Return 0
         If obj(prop) Is Nothing Then Return 0
         Return CLng(obj(prop))
     End Function
 
     Private Function WmiInt(obj As ManagementBaseObject, prop As String) As Integer
+        If obj Is Nothing Then Return 0
         If obj(prop) Is Nothing Then Return 0
         Return CInt(obj(prop))
     End Function
@@ -621,21 +1117,26 @@ Public Class Form1
 
 
     Private Sub ShowPnPDriver(deviceId As String)
+        currentIconKey = "pnp"
 
-        For Each d As ManagementObject In New ManagementObjectSearcher(
-        "SELECT * FROM Win32_PnPSignedDriver WHERE DeviceID='" &
-        deviceId.Replace("\", "\\") & "'").Get()
+        ' FIX: escapa aspas simples além da barra invertida
+        Dim safeId = deviceId.Replace("\", "\\").Replace("'", "''")
 
-            AddDetail("Driver", WmiStr(d, "DriverName"))
-            AddDetail("Versão", WmiStr(d, "DriverVersion"))
-            AddDetail("Fabricante", WmiStr(d, "DriverProviderName"))
-            AddDetail("INF", WmiStr(d, "InfName"))
-            AddDetail("Data", WmiStr(d, "DriverDate"))
-            AddDetail("Arquivo", WmiStr(d, "DriverName"))
-            AddDetail("Diretório", WmiStr(d, "DriverPath"))
-
-            Exit For
-        Next
+        Using searcher As New ManagementObjectSearcher(
+        "SELECT * FROM Win32_PnPSignedDriver WHERE DeviceID='" & safeId & "'"), results As ManagementObjectCollection = searcher.Get()
+            For Each d As ManagementObject In results
+                Using d
+                    AddDetail("Driver", WmiStr(d, "DriverName"))
+                    AddDetail("Versão", WmiStr(d, "DriverVersion"))
+                    AddDetail("Fabricante", WmiStr(d, "DriverProviderName"))
+                    AddDetail("INF", WmiStr(d, "InfName"))
+                    AddDetail("Data", WmiStr(d, "DriverDate"))
+                    AddDetail("Arquivo", WmiStr(d, "DriverName"))
+                    AddDetail("Diretório", WmiStr(d, "DriverPath"))
+                End Using
+                Exit For
+            Next
+        End Using
 
     End Sub
 
@@ -643,49 +1144,58 @@ Public Class Form1
 
     Private Sub ShowResumo()
         LVdetalhes.Items.Clear()
+        currentIconKey = "info"
 
         ' ===== CPU =====
         Dim vt As String = "?"
         Dim slat As String = "?"
         Dim hyperv As String = "?"
 
-        For Each cpu As ManagementObject In New ManagementObjectSearcher(
+        Using searcher As New ManagementObjectSearcher(
         "SELECT Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed, " &
         "VirtualizationFirmwareEnabled, SecondLevelAddressTranslationExtensions " &
-        "FROM Win32_Processor").Get()
+        "FROM Win32_Processor"), results As ManagementObjectCollection = searcher.Get()
+            For Each cpu As ManagementObject In results
+                Using cpu
+                    Dim nome = WmiStr(cpu, "Name")
+                    Dim cores = WmiInt(cpu, "NumberOfCores")
+                    Dim threads = WmiInt(cpu, "NumberOfLogicalProcessors")
+                    Dim freq = WmiInt(cpu, "MaxClockSpeed") / 1000.0
 
-            Dim nome = WmiStr(cpu, "Name")
-            Dim cores = WmiInt(cpu, "NumberOfCores")
-            Dim threads = WmiInt(cpu, "NumberOfLogicalProcessors")
-            Dim freq = WmiInt(cpu, "MaxClockSpeed") / 1000.0
+                    AddDetail("Processador", $"{nome} ({cores}/{threads} @ {freq:0.00} GHz)")
 
-            AddDetail("Processador", $"{nome} ({cores}/{threads} @ {freq:0.00} GHz)")
-
-            vt = If(WmiBool(cpu, "VirtualizationFirmwareEnabled"), "✓", "✗")
-            slat = If(WmiBool(cpu, "SecondLevelAddressTranslationExtensions"), "✓", "✗")
-
-            Exit For
-        Next
+                    vt = If(WmiBool(cpu, "VirtualizationFirmwareEnabled"), "✓", "✗")
+                    slat = If(WmiBool(cpu, "SecondLevelAddressTranslationExtensions"), "✓", "✗")
+                End Using
+                Exit For
+            Next
+        End Using
 
         ' ---- Hyper-V ----
-        For Each cs As ManagementObject In New ManagementObjectSearcher(
-        "SELECT HypervisorPresent FROM Win32_ComputerSystem").Get()
-
-            hyperv = If(WmiBool(cs, "HypervisorPresent"), "✓", "✗")
-            Exit For
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT HypervisorPresent FROM Win32_ComputerSystem"), results As ManagementObjectCollection = searcher.Get()
+            For Each cs As ManagementObject In results
+                Using cs
+                    hyperv = If(WmiBool(cs, "HypervisorPresent"), "✓", "✗")
+                End Using
+                Exit For
+            Next
+        End Using
 
         AddDetail("Virtualização", $"VT-x / AMD-V {vt} | SLAT {slat} | Hyper-V {hyperv}")
 
         ' ===== INSTRUÇÕES DO PROCESSADOR =====
-        For Each cpu As ManagementObject In New ManagementObjectSearcher("SELECT * FROM Win32_Processor").Get()
-            Dim inst As New List(Of String)
-            If WmiBool(cpu, "PAEEnabled") Then inst.Add("PAE")
-            If WmiBool(cpu, "SecondLevelAddressTranslationExtensions") Then inst.Add("SLAT")
-            If WmiBool(cpu, "VirtualizationFirmwareEnabled") Then inst.Add("VT-x/AMD-V")
-            AddDetail("Instruções CPU", If(inst.Count > 0, String.Join(", ", inst), "Não reportadas"))
-            Exit For
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_Processor"), results As ManagementObjectCollection = searcher.Get()
+            For Each cpu As ManagementObject In results
+                Using cpu
+                    Dim inst As New List(Of String)
+                    If WmiBool(cpu, "PAEEnabled") Then inst.Add("PAE")
+                    If WmiBool(cpu, "SecondLevelAddressTranslationExtensions") Then inst.Add("SLAT")
+                    If WmiBool(cpu, "VirtualizationFirmwareEnabled") Then inst.Add("VT-x/AMD-V")
+                    AddDetail("Instruções CPU", If(inst.Count > 0, String.Join(", ", inst), "Não reportadas"))
+                End Using
+                Exit For
+            Next
+        End Using
 
         ' ===== MEMÓRIA =====
         Dim totalRam As Long = 0
@@ -694,104 +1204,131 @@ Public Class Form1
         Dim slotsOcupados As Integer = 0
         Dim slotsTotal As Integer = 0
 
-        For Each cs As ManagementObject In New ManagementObjectSearcher(
-        "SELECT TotalPhysicalMemory FROM Win32_ComputerSystem").Get()
-            totalRam = WmiLng(cs, "TotalPhysicalMemory")
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT TotalPhysicalMemory FROM Win32_ComputerSystem"), results As ManagementObjectCollection = searcher.Get()
+            For Each cs As ManagementObject In results
+                Using cs
+                    totalRam = WmiLng(cs, "TotalPhysicalMemory")
+                End Using
+            Next
+        End Using
 
-        For Each m As ManagementObject In New ManagementObjectSearcher(
-        "SELECT Speed, MemoryType FROM Win32_PhysicalMemory").Get()
-            freqMax = Math.Max(freqMax, WmiInt(m, "Speed"))
-            If tipoMem = "" Then tipoMem = MemoryType(WmiInt(m, "MemoryType"))
-            slotsOcupados += 1
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT Speed, MemoryType FROM Win32_PhysicalMemory"), results As ManagementObjectCollection = searcher.Get()
+            For Each m As ManagementObject In results
+                Using m
+                    freqMax = Math.Max(freqMax, WmiInt(m, "Speed"))
+                    If tipoMem = "" Then tipoMem = MemoryType(WmiInt(m, "MemoryType"))
+                    slotsOcupados += 1
+                End Using
+            Next
+        End Using
 
-        For Each arr As ManagementObject In New ManagementObjectSearcher(
-        "SELECT MemoryDevices FROM Win32_PhysicalMemoryArray").Get()
-            slotsTotal = WmiInt(arr, "MemoryDevices")
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT MemoryDevices FROM Win32_PhysicalMemoryArray"), results As ManagementObjectCollection = searcher.Get()
+            For Each arr As ManagementObject In results
+                Using arr
+                    slotsTotal = WmiInt(arr, "MemoryDevices")
+                End Using
+            Next
+        End Using
 
         AddDetail("Memória", $"{FormatSize(totalRam)} ({freqMax} MHz | {tipoMem} | {slotsOcupados}/{slotsTotal})")
 
         ' ===== SISTEMA OPERACIONAL =====
-        For Each os As ManagementObject In New ManagementObjectSearcher(
-        "SELECT Caption, Version, ServicePackMajorVersion, BuildNumber, InstallDate FROM Win32_OperatingSystem").Get()
+        Using searcher As New ManagementObjectSearcher(
+        "SELECT Caption, Version, ServicePackMajorVersion, BuildNumber, InstallDate FROM Win32_OperatingSystem"), results As ManagementObjectCollection = searcher.Get()
+            For Each os As ManagementObject In results
+                Using os
+                    Dim spNum = WmiInt(os, "ServicePackMajorVersion")
+                    Dim spTxt = If(spNum > 0, $"SP {spNum}", "Sem Service Pack")
 
-            Dim spNum = WmiInt(os, "ServicePackMajorVersion")
-            Dim spTxt = If(spNum > 0, $"SP {spNum}", "Sem Service Pack")
+                    ' Data de instalação
+                    Dim installRaw = WmiStr(os, "InstallDate")
+                    Dim dtInstall As String = ""
+                    If installRaw.Length >= 14 Then
+                        Dim tempDt As DateTime
+                        If DateTime.TryParseExact(installRaw.Substring(0, 14), "yyyyMMddHHmmss", Nothing, Globalization.DateTimeStyles.None, tempDt) Then
+                            dtInstall = tempDt.ToShortDateString()
+                        End If
+                    End If
 
-            ' Data de instalação
-            Dim installRaw = WmiStr(os, "InstallDate")
-            Dim dtInstall As String = ""
-            If installRaw.Length >= 14 Then
-                Dim tempDt As DateTime
-                If DateTime.TryParseExact(installRaw.Substring(0, 14), "yyyyMMddHHmmss", Nothing, Globalization.DateTimeStyles.None, tempDt) Then
-                    dtInstall = tempDt.ToShortDateString()
-                End If
-            End If
-
-            AddDetail("Sistema Operacional", $"{WmiStr(os, "Caption")} {WmiStr(os, "Version")} (Build {WmiStr(os, "BuildNumber")}) — {spTxt}")
-            AddDetail("Caminho do Sistema Operacional", Environment.GetFolderPath(Environment.SpecialFolder.Windows))
-            AddDetail("Data de Instalação do Sistema Operacional", dtInstall)
-
-            Exit For
-        Next
+                    AddDetail("Sistema Operacional", $"{WmiStr(os, "Caption")} {WmiStr(os, "Version")} (Build {WmiStr(os, "BuildNumber")}) — {spTxt}")
+                    AddDetail("Caminho do Sistema Operacional", Environment.GetFolderPath(Environment.SpecialFolder.Windows))
+                    AddDetail("Data de Instalação do Sistema Operacional", dtInstall)
+                End Using
+                Exit For
+            Next
+        End Using
 
         ' ===== ARMAZENAMENTO =====
-        For Each d As ManagementObject In New ManagementObjectSearcher(
-        "SELECT Model, Size, MediaType, InterfaceType FROM Win32_DiskDrive").Get()
-            Dim tipo = DiskType(d)
-            AddDetail($"Armazenamento {tipo}", $"{WmiStr(d, "Model")} — {FormatSize(WmiLng(d, "Size"))}")
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT Model, Size, MediaType, InterfaceType FROM Win32_DiskDrive"), results As ManagementObjectCollection = searcher.Get()
+            For Each d As ManagementObject In results
+                Using d
+                    Dim tipo = DiskType(d)
+                    AddDetail($"Armazenamento {tipo}", $"{WmiStr(d, "Model")} — {FormatSize(WmiLng(d, "Size"))}")
+                End Using
+            Next
+        End Using
 
         ' ===== GPU =====
         Dim gpus As New List(Of String)
-        For Each gpu As ManagementObject In New ManagementObjectSearcher(
-        "SELECT Name, AdapterRAM FROM Win32_VideoController").Get()
-            Dim nome = WmiStr(gpu, "Name")
-            Dim vram = FormatBytes(WmiLng(gpu, "AdapterRAM"))
-            If nome <> "" Then gpus.Add($"{nome} ({vram})")
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT Name, AdapterRAM FROM Win32_VideoController"), results As ManagementObjectCollection = searcher.Get()
+            For Each gpu As ManagementObject In results
+                Using gpu
+                    Dim nome = WmiStr(gpu, "Name")
+                    Dim vram = FormatBytes(WmiLng(gpu, "AdapterRAM"))
+                    If nome <> "" Then gpus.Add($"{nome} ({vram})")
+                End Using
+            Next
+        End Using
         If gpus.Count > 0 Then AddDetail("Placa(s) de Vídeo", String.Join(" | ", gpus))
 
         ' ===== PLACA-MÃE =====
-        For Each b As ManagementObject In New ManagementObjectSearcher(
-        "SELECT Manufacturer, Product, SerialNumber FROM Win32_BaseBoard").Get()
-            Dim marca = WmiStr(b, "Manufacturer")
-            Dim modelo = WmiStr(b, "Product")
-            Dim serie = WmiStr(b, "SerialNumber")
-            Dim info = $"{marca} {modelo}".Trim()
-            If serie <> "" AndAlso serie.ToLower() <> "default string" Then info &= $" (S/N: {serie})"
-            AddDetail("Placa-mãe", info)
-            Exit For
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT Manufacturer, Product, SerialNumber FROM Win32_BaseBoard"), results As ManagementObjectCollection = searcher.Get()
+            For Each b As ManagementObject In results
+                Using b
+                    Dim marca = WmiStr(b, "Manufacturer")
+                    Dim modelo = WmiStr(b, "Product")
+                    Dim serie = WmiStr(b, "SerialNumber")
+                    Dim info = $"{marca} {modelo}".Trim()
+                    If serie <> "" AndAlso serie.ToLower() <> "default string" Then info &= $" (S/N: {serie})"
+                    AddDetail("Placa-mãe", info)
+                End Using
+                Exit For
+            Next
+        End Using
 
         ' ===== BIOS =====
-        For Each bios As ManagementObject In New ManagementObjectSearcher(
-        "SELECT Manufacturer, SMBIOSBIOSVersion, ReleaseDate FROM Win32_BIOS").Get()
-            Dim fabricante = WmiStr(bios, "Manufacturer")
-            Dim versao = WmiStr(bios, "SMBIOSBIOSVersion")
-            Dim dataRaw = WmiStr(bios, "ReleaseDate")
-            Dim dataFmt As String = ""
-            If dataRaw.Length >= 8 Then
-                dataFmt = $"{dataRaw.Substring(0, 4)}-{dataRaw.Substring(4, 2)}-{dataRaw.Substring(6, 2)}"
-            End If
-            Dim info = $"{fabricante} v{versao}"
-            If dataFmt <> "" Then info &= $" ({dataFmt})"
-            AddDetail("BIOS", info)
-            Exit For
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT Manufacturer, SMBIOSBIOSVersion, ReleaseDate FROM Win32_BIOS"), results As ManagementObjectCollection = searcher.Get()
+            For Each bios As ManagementObject In results
+                Using bios
+                    Dim fabricante = WmiStr(bios, "Manufacturer")
+                    Dim versao = WmiStr(bios, "SMBIOSBIOSVersion")
+                    Dim dataRaw = WmiStr(bios, "ReleaseDate")
+                    Dim dataFmt As String = ""
+                    If dataRaw.Length >= 8 Then
+                        dataFmt = $"{dataRaw.Substring(0, 4)}-{dataRaw.Substring(4, 2)}-{dataRaw.Substring(6, 2)}"
+                    End If
+                    Dim info = $"{fabricante} v{versao}"
+                    If dataFmt <> "" Then info &= $" ({dataFmt})"
+                    AddDetail("BIOS", info)
+                End Using
+                Exit For
+            Next
+        End Using
 
         ' ===== TPM =====
         Try
             Dim scope As New ManagementScope("root\CIMV2\Security\MicrosoftTpm")
             scope.Connect()
             Dim query As New ObjectQuery("SELECT * FROM Win32_Tpm")
-            For Each tpm As ManagementObject In New ManagementObjectSearcher(scope, query).Get()
-                Dim versao = WmiStr(tpm, "SpecVersion")
-                AddDetail("TPM", $"Presente (v{versao})")
-                Exit For
-            Next
+            Using searcher As New ManagementObjectSearcher(scope, query), results As ManagementObjectCollection = searcher.Get()
+                For Each tpm As ManagementObject In results
+                    Using tpm
+                        Dim versao = WmiStr(tpm, "SpecVersion")
+                        AddDetail("TPM", $"Presente (v{versao})")
+                    End Using
+                    Exit For
+                Next
+            End Using
         Catch
             AddDetail("TPM", "Não presente")
         End Try
@@ -801,14 +1338,18 @@ Public Class Form1
             Dim scope As New ManagementScope("root\Microsoft\Windows\HardwareManagement")
             scope.Connect()
             Dim query As New ObjectQuery("SELECT * FROM MSFT_SecureBoot")
-            For Each sb As ManagementObject In New ManagementObjectSearcher(scope, query).Get()
-                Dim ativo As Boolean = False
-                If sb.Properties("SecureBootEnabled") IsNot Nothing AndAlso sb("SecureBootEnabled") IsNot Nothing Then
-                    ativo = CBool(sb("SecureBootEnabled"))
-                End If
-                AddDetail("Secure Boot", If(ativo, "Ativo ✓", "Desativado ✗"))
-                Exit For
-            Next
+            Using searcher As New ManagementObjectSearcher(scope, query), results As ManagementObjectCollection = searcher.Get()
+                For Each sb As ManagementObject In results
+                    Using sb
+                        Dim ativo As Boolean = False
+                        If sb.Properties("SecureBootEnabled") IsNot Nothing AndAlso sb("SecureBootEnabled") IsNot Nothing Then
+                            ativo = CBool(sb("SecureBootEnabled"))
+                        End If
+                        AddDetail("Secure Boot", If(ativo, "Ativo ✓", "Desativado ✗"))
+                    End Using
+                    Exit For
+                Next
+            End Using
         Catch
             AddDetail("Secure Boot", "Não suportado / Legacy BIOS")
         End Try
@@ -817,25 +1358,31 @@ Public Class Form1
         AddDetail("Modo de Boot", If(IsUEFI(), "UEFI", "Legacy"))
 
         ' ===== PLACAS DE REDE =====
-        For Each nic As ManagementObject In New ManagementObjectSearcher(
-        "SELECT * FROM Win32_NetworkAdapter WHERE NetEnabled=True").Get()
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_NetworkAdapter WHERE NetEnabled=True"), results As ManagementObjectCollection = searcher.Get()
+            For Each nic As ManagementObject In results
+                Using nic
+                    Dim nome = WmiStr(nic, "Name")
+                    Dim mac = WmiStr(nic, "MACAddress")
+                    Dim ips As New List(Of String)
 
-            Dim nome = WmiStr(nic, "Name")
-            Dim mac = WmiStr(nic, "MACAddress")
-            Dim ips As New List(Of String)
+                    Using searcher2 As New ManagementObjectSearcher(
+                    $"SELECT * FROM Win32_NetworkAdapterConfiguration WHERE MACAddress='{mac.Replace("'", "''")}'"), resultsCfg As ManagementObjectCollection = searcher2.Get()
+                        For Each cfg As ManagementObject In resultsCfg
+                            Using cfg
+                                Dim ipArr = cfg("IPAddress")
+                                If ipArr IsNot Nothing Then
+                                    For Each ip In CType(ipArr, String())
+                                        ips.Add(ip)
+                                    Next
+                                End If
+                            End Using
+                        Next
+                    End Using
 
-            For Each cfg As ManagementObject In New ManagementObjectSearcher(
-            $"SELECT * FROM Win32_NetworkAdapterConfiguration WHERE MACAddress='{mac}'").Get()
-                Dim ipArr = cfg("IPAddress")
-                If ipArr IsNot Nothing Then
-                    For Each ip In CType(ipArr, String())
-                        ips.Add(ip)
-                    Next
-                End If
+                    AddDetail($"Rede: {nome}", $"MAC: {mac} | IP: {String.Join(", ", ips)}")
+                End Using
             Next
-
-            AddDetail($"Rede: {nome}", $"MAC: {mac} | IP: {String.Join(", ", ips)}")
-        Next
+        End Using
 
         ' ===== NOME DO COMPUTADOR =====
         AddDetail("Nome do Computador", Environment.MachineName)
@@ -886,49 +1433,52 @@ Public Class Form1
     Private Sub ShowCPU()
 
         LVdetalhes.Items.Clear()
+        currentIconKey = "cpu"
 
-        For Each cpu As ManagementObject In New ManagementObjectSearcher(
-        "SELECT * FROM Win32_Processor").Get()
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_Processor"), results As ManagementObjectCollection = searcher.Get()
+            For Each cpu As ManagementObject In results
+                Using cpu
+                    ' ===== IDENTIFICAÇÃO =====
+                    AddDetail("Nome", WmiStr(cpu, "Name"))
+                    Dim rawVendor = WmiStr(cpu, "Manufacturer")
+                    AddDetail("Fabricante", NormalizeCpuVendor(rawVendor))
+                    AddDetail("ID do Processador", WmiStr(cpu, "ProcessorId"))
 
-            ' ===== IDENTIFICAÇÃO =====
-            AddDetail("Nome", WmiStr(cpu, "Name"))
-            Dim rawVendor = WmiStr(cpu, "Manufacturer")
-            AddDetail("Fabricante", NormalizeCpuVendor(rawVendor))
-            AddDetail("ID do Processador", WmiStr(cpu, "ProcessorId"))
+                    ' ===== TOPOLOGIA =====
+                    AddDetail("Núcleos Físicos", WmiStr(cpu, "NumberOfCores"))
+                    AddDetail("Threads", WmiStr(cpu, "NumberOfLogicalProcessors"))
 
-            ' ===== TOPOLOGIA =====
-            AddDetail("Núcleos Físicos", WmiStr(cpu, "NumberOfCores"))
-            AddDetail("Threads", WmiStr(cpu, "NumberOfLogicalProcessors"))
+                    ' ===== CLOCK =====
+                    AddDetail("Clock Atual (MHz)", WmiStr(cpu, "CurrentClockSpeed"))
+                    AddDetail("Clock Máximo (MHz)", WmiStr(cpu, "MaxClockSpeed"))
 
-            ' ===== CLOCK =====
-            AddDetail("Clock Atual (MHz)", WmiStr(cpu, "CurrentClockSpeed"))
-            AddDetail("Clock Máximo (MHz)", WmiStr(cpu, "MaxClockSpeed"))
+                    ' ===== ARQUITETURA =====
+                    AddDetail("Arquitetura", If(WmiStr(cpu, "AddressWidth") = "64", "64 bits", "32 bits"))
+                    AddDetail("Família", WmiStr(cpu, "Family"))
+                    AddDetail("Modelo", WmiStr(cpu, "Model"))
+                    AddDetail("Stepping", WmiStr(cpu, "Stepping"))
 
-            ' ===== ARQUITETURA =====
-            AddDetail("Arquitetura", If(WmiStr(cpu, "AddressWidth") = "64", "64 bits", "32 bits"))
-            AddDetail("Família", WmiStr(cpu, "Family"))
-            AddDetail("Modelo", WmiStr(cpu, "Model"))
-            AddDetail("Stepping", WmiStr(cpu, "Stepping"))
+                    ' ===== RECURSOS =====
+                    AddDetail("Hyper-Threading",
+                    If(CInt(WmiStr(cpu, "NumberOfLogicalProcessors", "0")) >
+                       CInt(WmiStr(cpu, "NumberOfCores", "0")),
+                       "Sim", "Não"))
 
-            ' ===== RECURSOS =====
-            AddDetail("Hyper-Threading",
-            If(CInt(WmiStr(cpu, "NumberOfLogicalProcessors", "0")) >
-               CInt(WmiStr(cpu, "NumberOfCores", "0")),
-               "Sim", "Não"))
+                    AddDetail("DEP / NX", WmiStr(cpu, "ExecuteDisableBitAvailable"))
 
-            AddDetail("DEP / NX", WmiStr(cpu, "ExecuteDisableBitAvailable"))
+                    ' ===== VIRTUALIZAÇÃO =====
+                    AddDetail("Virtualização Suportada", WmiStr(cpu, "VMMonitorModeExtensions"))
+                    AddDetail("Virtualização Ativa no BIOS", WmiStr(cpu, "VirtualizationFirmwareEnabled"))
+                    AddDetail("SLAT (EPT/RVI)", WmiStr(cpu, "SecondLevelAddressTranslationExtensions"))
 
-            ' ===== VIRTUALIZAÇÃO =====
-            AddDetail("Virtualização Suportada", WmiStr(cpu, "VMMonitorModeExtensions"))
-            AddDetail("Virtualização Ativa no BIOS", WmiStr(cpu, "VirtualizationFirmwareEnabled"))
-            AddDetail("SLAT (EPT/RVI)", WmiStr(cpu, "SecondLevelAddressTranslationExtensions"))
+                    ' ===== CACHE =====
+                    AddDetail("Cache L2 (KB)", WmiStr(cpu, "L2CacheSize"))
+                    AddDetail("Cache L3 (KB)", WmiStr(cpu, "L3CacheSize"))
+                End Using
 
-            ' ===== CACHE =====
-            AddDetail("Cache L2 (KB)", WmiStr(cpu, "L2CacheSize"))
-            AddDetail("Cache L3 (KB)", WmiStr(cpu, "L3CacheSize"))
-
-            Exit For ' normalmente só existe um CPU
-        Next
+                Exit For ' normalmente só existe um CPU
+            Next
+        End Using
 
     End Sub
     Private Function NormalizeCpuVendor(vendor As String) As String
@@ -957,38 +1507,44 @@ Public Class Form1
     End Function
 
     Private Sub ShowRAMSlot(bank As String)
+        currentIconKey = "ram"
 
-        For Each m In New ManagementObjectSearcher(
-        "SELECT * FROM Win32_PhysicalMemory").Get()
-
-            If WmiStr(m, "BankLabel") = bank Then
-                AddDetail("Slot", bank)
-                AddDetail("Capacidade", FormatSize(CLng(m("Capacity"))))
-                AddDetail("Tipo", MemoryType(CInt(m("SMBIOSMemoryType"))))
-                AddDetail("Frequência", m("Speed").ToString() & " MHz")
-                AddDetail("Fabricante", m("Manufacturer").ToString())
-                AddDetail("Serial", m("SerialNumber").ToString())
-            End If
-
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_PhysicalMemory"), results As ManagementObjectCollection = searcher.Get()
+            For Each m As ManagementObject In results
+                Using m
+                    If WmiStr(m, "BankLabel") = bank Then
+                        ' FIX: usar os helpers seguros em vez de acesso direto (evita NullReferenceException)
+                        AddDetail("Slot", bank)
+                        AddDetail("Capacidade", FormatSize(WmiLng(m, "Capacity")))
+                        AddDetail("Tipo", MemoryType(WmiInt(m, "SMBIOSMemoryType")))
+                        AddDetail("Frequência", WmiStr(m, "Speed") & " MHz")
+                        AddDetail("Fabricante", WmiStr(m, "Manufacturer"))
+                        AddDetail("Serial", WmiStr(m, "SerialNumber"))
+                    End If
+                End Using
+            Next
+        End Using
 
     End Sub
 
     Private Sub ShowRAMResumo()
+        currentIconKey = "ram"
 
         Dim totalSlots As Integer = 0
         Dim slotsUsados As Integer = 0
         Dim totalMem As Long = 0
         Dim freq As Integer = 0
 
-        For Each m In New ManagementObjectSearcher(
-        "SELECT * FROM Win32_PhysicalMemory").Get()
-
-            totalSlots += 1
-            slotsUsados += 1
-            totalMem += CLng(m("Capacity"))
-            freq = Math.Max(freq, CInt(m("Speed")))
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_PhysicalMemory"), results As ManagementObjectCollection = searcher.Get()
+            For Each m As ManagementObject In results
+                Using m
+                    totalSlots += 1
+                    slotsUsados += 1
+                    totalMem += WmiLng(m, "Capacity")
+                    freq = Math.Max(freq, WmiInt(m, "Speed"))
+                End Using
+            Next
+        End Using
 
         AddDetail("Total de RAM", FormatSize(totalMem))
         AddDetail("Slots Totais", totalSlots.ToString())
@@ -1010,43 +1566,57 @@ Public Class Form1
         End Select
     End Function
     Private Sub ShowPnPDevice(deviceId As String)
+        currentIconKey = "pnp"
 
-        For Each d In New ManagementObjectSearcher(
-        "SELECT * FROM Win32_PnPEntity").Get()
-
-            If d("DeviceID").ToString() = deviceId Then
-
-                For Each prop In d.Properties
-                    If prop.Value IsNot Nothing Then
-                        AddDetail(prop.Name, prop.Value.ToString())
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_PnPEntity"), results As ManagementObjectCollection = searcher.Get()
+            For Each d As ManagementObject In results
+                Using d
+                    If WmiStr(d, "DeviceID") = deviceId Then
+                        For Each prop In d.Properties
+                            If prop.Value IsNot Nothing Then
+                                AddDetail(prop.Name, prop.Value.ToString())
+                            End If
+                        Next
                     End If
-                Next
-
-            End If
-        Next
+                End Using
+            Next
+        End Using
 
     End Sub
     Private Sub ShowDisk(deviceId As String)
+        currentIconKey = "storage"
 
-        For Each d In New ManagementObjectSearcher(
-        "SELECT * FROM Win32_DiskDrive").Get()
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_DiskDrive"), results As ManagementObjectCollection = searcher.Get()
+            For Each d As ManagementObject In results
+                Using d
+                    If WmiStr(d, "DeviceID") = deviceId Then
+                        ' FIX: acesso seguro em vez de d("Status").ToString() direto
+                        Dim status = WmiStr(d, "Status")
+                        Dim alerta = status <> "OK"
 
-            If d("DeviceID").ToString() = deviceId Then
-                Dim alerta = d("Status").ToString() <> "OK"
-
-                AddDetail("Modelo", d("Model").ToString(), alerta)
-                AddDetail("Interface", d("InterfaceType").ToString())
-                AddDetail("Capacidade", FormatSize(CLng(d("Size"))))
-                AddDetail("SMART", d("Status").ToString(), alerta)
-            End If
-
-        Next
+                        AddDetail("Modelo", WmiStr(d, "Model"), alerta)
+                        AddDetail("Interface", WmiStr(d, "InterfaceType"))
+                        AddDetail("Capacidade", FormatSize(WmiLng(d, "Size")))
+                        AddDetail("SMART", status, alerta)
+                    End If
+                End Using
+            Next
+        End Using
 
     End Sub
-    Private Sub AddDetail(nome As String, valor As String, Optional alerta As Boolean = False)
-        Dim item = LVdetalhes.Items.Add(nome)
+    Private Sub AddDetail(propriedade As String, valor As String, Optional alerta As Boolean = False)
+        Dim item As New ListViewItem(propriedade)
         item.SubItems.Add(valor)
-        If alerta Then item.BackColor = Color.LightSalmon
+
+        ' CORREÇÃO DEFINITIVA PARA O LISTVIEW: Associa a chave do ícone atual à linha
+        item.ImageKey = currentIconKey
+
+        If alerta Then
+            item.ForeColor = Color.Red
+            item.ImageKey = "warning"
+        End If
+
+        LVdetalhes.Items.Add(item)
     End Sub
 
     Private Function FormatSize(bytes As Long) As String
@@ -1058,30 +1628,297 @@ Public Class Form1
     Private Sub ShowMotherboard()
 
         LVdetalhes.Items.Clear()
+        currentIconKey = "mb"
 
         ' ===== PLACA-MÃE =====
-        For Each b As ManagementObject In New ManagementObjectSearcher(
-        "SELECT * FROM Win32_BaseBoard").Get()
-
-            AddDetail("Fabricante", WmiStr(b, "Manufacturer"))
-            AddDetail("Modelo", WmiStr(b, "Product"))
-            AddDetail("Número de Série", WmiStr(b, "SerialNumber"))
-            AddDetail("Asset Tag", WmiStr(b, "Tag"))
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_BaseBoard"), results As ManagementObjectCollection = searcher.Get()
+            For Each b As ManagementObject In results
+                Using b
+                    AddDetail("Fabricante", WmiStr(b, "Manufacturer"))
+                    AddDetail("Modelo", WmiStr(b, "Product"))
+                    AddDetail("Número de Série", WmiStr(b, "SerialNumber"))
+                    AddDetail("Asset Tag", WmiStr(b, "Tag"))
+                End Using
+            Next
+        End Using
 
         ' ===== BIOS =====
-        For Each bios As ManagementObject In New ManagementObjectSearcher(
-        "SELECT * FROM Win32_BIOS").Get()
-
-            AddDetail("BIOS Fabricante", WmiStr(bios, "Manufacturer"))
-            AddDetail("Versão BIOS", WmiStr(bios, "SMBIOSBIOSVersion"))
-            AddDetail("Data BIOS", WmiStr(bios, "ReleaseDate"))
-        Next
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_BIOS"), results As ManagementObjectCollection = searcher.Get()
+            For Each bios As ManagementObject In results
+                Using bios
+                    AddDetail("BIOS Fabricante", WmiStr(bios, "Manufacturer"))
+                    AddDetail("Versão BIOS", WmiStr(bios, "SMBIOSBIOSVersion"))
+                    AddDetail("Data BIOS", WmiStr(bios, "ReleaseDate"))
+                End Using
+            Next
+        End Using
 
     End Sub
-    Public Sub ExportReport(completo As Boolean, Optional imprimir As Boolean = False)
-        ' Detecta se o aplicativo foi iniciado com o parâmetro -report
-        Dim isAuto As Boolean = My.Application.CommandLineArgs.Contains("-report")
+
+    ' ===== Informações do BIOS/UEFI (consulta dedicada, sem misturar com placa-mãe) =====
+    Private Sub ShowBiosInfo()
+        LVdetalhes.Items.Clear()
+        currentIconKey = "mb"
+
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_BIOS"), results As ManagementObjectCollection = searcher.Get()
+            For Each bios As ManagementObject In results
+                Using bios
+                    AddDetail("Fabricante", WmiStr(bios, "Manufacturer"))
+                    AddDetail("Versão (SMBIOS)", WmiStr(bios, "SMBIOSBIOSVersion"))
+                    AddDetail("Versão do BIOS", WmiStr(bios, "Version"))
+
+                    Dim dataRaw = WmiStr(bios, "ReleaseDate")
+                    Dim dataFmt = If(dataRaw.Length >= 8,
+                                  $"{dataRaw.Substring(0, 4)}-{dataRaw.Substring(4, 2)}-{dataRaw.Substring(6, 2)}",
+                                  "Desconhecida")
+                    AddDetail("Data de Lançamento", dataFmt)
+                    AddDetail("Número de Série", WmiStr(bios, "SerialNumber"))
+                End Using
+                Exit For
+            Next
+        End Using
+
+        AddDetail("Modo de Boot", If(IsUEFI(), "UEFI", "Legacy"))
+    End Sub
+
+    ' ===== Verificação dedicada de TPM (presença, versão, ativação) =====
+    Private Sub ShowTpmInfo()
+        LVdetalhes.Items.Clear()
+        currentIconKey = "info"
+
+        Try
+            Dim scope As New ManagementScope("root\CIMV2\Security\MicrosoftTpm")
+            scope.Connect()
+            Dim query As New ObjectQuery("SELECT * FROM Win32_Tpm")
+
+            Dim encontrado = False
+            Using searcher As New ManagementObjectSearcher(scope, query), results As ManagementObjectCollection = searcher.Get()
+                For Each tpm As ManagementObject In results
+                    Using tpm
+                        encontrado = True
+                        AddDetail("TPM Presente", "Sim")
+                        AddDetail("Versão da Especificação", WmiStr(tpm, "SpecVersion", "Desconhecida"))
+                        AddDetail("Fabricante", WmiStr(tpm, "ManufacturerIdTxt", "Desconhecido"))
+                        AddDetail("Versão do Fabricante", WmiStr(tpm, "ManufacturerVersion", "Desconhecida"))
+
+                        Dim ativado = False
+                        Try
+                            If tpm("IsActivated_InitialValue") IsNot Nothing Then
+                                ativado = CBool(tpm("IsActivated_InitialValue"))
+                            End If
+                        Catch
+                        End Try
+                        AddDetail("Ativado", If(ativado, "Sim", "Não"), Not ativado)
+
+                        Dim habilitado = False
+                        Try
+                            If tpm("IsEnabled_InitialValue") IsNot Nothing Then
+                                habilitado = CBool(tpm("IsEnabled_InitialValue"))
+                            End If
+                        Catch
+                        End Try
+                        AddDetail("Habilitado", If(habilitado, "Sim", "Não"), Not habilitado)
+                    End Using
+                    Exit For
+                Next
+            End Using
+
+            If Not encontrado Then
+                AddDetail("TPM Presente", "Não", True)
+            End If
+
+        Catch
+            AddDetail("TPM Presente", "Não / Não suportado neste hardware", True)
+        End Try
+    End Sub
+
+    ' ===== Verificação dedicada de virtualização (VT-x/AMD-V, SLAT, Hyper-V) =====
+    Private Sub ShowVirtualizationInfo()
+        LVdetalhes.Items.Clear()
+        currentIconKey = "cpu"
+
+        Dim vt As String = "Não suportado"
+        Dim slat As String = "Não suportado"
+        Dim hyperv As String = "Nenhum hipervisor ativo"
+
+        Using searcher As New ManagementObjectSearcher(
+        "SELECT VirtualizationFirmwareEnabled, SecondLevelAddressTranslationExtensions, VMMonitorModeExtensions FROM Win32_Processor"), results As ManagementObjectCollection = searcher.Get()
+            For Each cpu As ManagementObject In results
+                Using cpu
+                    Dim suportaVmx = WmiBool(cpu, "VMMonitorModeExtensions")
+                    Dim ativoNoBios = WmiBool(cpu, "VirtualizationFirmwareEnabled")
+
+                    vt = If(ativoNoBios, "Ativo no BIOS",
+                         If(suportaVmx, "Suportado pelo CPU, mas desativado no BIOS", "Não suportado"))
+                    slat = If(WmiBool(cpu, "SecondLevelAddressTranslationExtensions"), "Suportado", "Não suportado")
+                End Using
+                Exit For
+            Next
+        End Using
+
+        Using searcher As New ManagementObjectSearcher("SELECT HypervisorPresent FROM Win32_ComputerSystem"), results As ManagementObjectCollection = searcher.Get()
+            For Each cs As ManagementObject In results
+                Using cs
+                    hyperv = If(WmiBool(cs, "HypervisorPresent"), "Um hipervisor está ativo (Hyper-V ou outro)", "Nenhum hipervisor ativo")
+                End Using
+                Exit For
+            Next
+        End Using
+
+        AddDetail("Virtualização (VT-x / AMD-V)", vt, Not vt.Contains("Ativo"))
+        AddDetail("SLAT (EPT/RVI)", slat, slat = "Não suportado")
+        AddDetail("Hyper-V / Hipervisor", hyperv)
+    End Sub
+
+    ' ===== Resumo do nó raiz "Dispositivos" =====
+    Private Sub ShowDispositivosResumo()
+        LVdetalhes.Items.Clear()
+        currentIconKey = "info"
+
+        ' CPU
+        Using searcher As New ManagementObjectSearcher("SELECT Name, NumberOfCores, NumberOfLogicalProcessors FROM Win32_Processor"), results As ManagementObjectCollection = searcher.Get()
+            For Each cpu As ManagementObject In results
+                Using cpu
+                    AddDetail("Processador", $"{WmiStr(cpu, "Name")} ({WmiInt(cpu, "NumberOfCores")}C/{WmiInt(cpu, "NumberOfLogicalProcessors")}T)")
+                End Using
+                Exit For
+            Next
+        End Using
+
+        ' RAM
+        Using searcher As New ManagementObjectSearcher("SELECT TotalPhysicalMemory FROM Win32_ComputerSystem"), results As ManagementObjectCollection = searcher.Get()
+            For Each cs As ManagementObject In results
+                Using cs
+                    AddDetail("Memória RAM", FormatSize(WmiLng(cs, "TotalPhysicalMemory")))
+                End Using
+                Exit For
+            Next
+        End Using
+
+        ' Placa-mãe
+        Using searcher As New ManagementObjectSearcher("SELECT Manufacturer, Product FROM Win32_BaseBoard"), results As ManagementObjectCollection = searcher.Get()
+            For Each b As ManagementObject In results
+                Using b
+                    AddDetail("Placa-mãe", $"{WmiStr(b, "Manufacturer")} {WmiStr(b, "Product")}".Trim())
+                End Using
+                Exit For
+            Next
+        End Using
+
+        ' GPU(s)
+        Dim gpus As New List(Of String)
+        Using searcher As New ManagementObjectSearcher("SELECT Name FROM Win32_VideoController"), results As ManagementObjectCollection = searcher.Get()
+            For Each gpu As ManagementObject In results
+                Using gpu
+                    Dim nome = WmiStr(gpu, "Name")
+                    If nome <> "" Then gpus.Add(nome)
+                End Using
+            Next
+        End Using
+        AddDetail("Placa(s) de Vídeo", If(gpus.Count > 0, String.Join(" | ", gpus), "Não detectada"))
+
+        ' Adaptadores de rede (aplicando o mesmo filtro da árvore)
+        Dim totalNic As Integer = 0
+        Dim ativosNic As Integer = 0
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_NetworkAdapter"), results As ManagementObjectCollection = searcher.Get()
+            For Each nic As ManagementObject In results
+                Using nic
+                    If Not IsWantedNetworkAdapter(nic) Then Continue For
+                    totalNic += 1
+                    If WmiBool(nic, "NetEnabled") Then ativosNic += 1
+                End Using
+            Next
+        End Using
+        AddDetail("Adaptadores de Rede", $"{totalNic} detectado(s) — {ativosNic} ativo(s)")
+
+        ' Dispositivos PnP (contagem geral, reaproveita a mesma lógica da árvore)
+        Dim totalPnp As Integer = 0
+        Using searcher As New ManagementObjectSearcher(
+        "SELECT * FROM Win32_PnPEntity WHERE Present = TRUE AND PNPDeviceID IS NOT NULL"), results As ManagementObjectCollection = searcher.Get()
+            For Each dev As ManagementObject In results
+                Using dev
+                    Dim pnpId = WmiStr(dev, "PNPDeviceID")
+                    If Not IsRealPnPDevice(pnpId) Then Continue For
+                    If String.IsNullOrEmpty(WmiStr(dev, "Name")) Then Continue For
+                    totalPnp += 1
+                End Using
+            Next
+        End Using
+        AddDetail("Dispositivos Plug and Play", $"{totalPnp} dispositivo(s) detectado(s)")
+    End Sub
+
+    ' ===== Resumo do nó raiz "Dispositivos Plug and Play" =====
+    Private Sub ShowPnpResumo()
+        LVdetalhes.Items.Clear()
+        currentIconKey = "pnp"
+
+        Dim porBarramento As New Dictionary(Of String, Integer)
+        Dim totalOk As Integer = 0
+        Dim totalSemDriver As Integer = 0
+        Dim totalErro As Integer = 0
+
+        Using searcher As New ManagementObjectSearcher(
+        "SELECT * FROM Win32_PnPEntity WHERE Present = TRUE AND PNPDeviceID IS NOT NULL"), results As ManagementObjectCollection = searcher.Get()
+            For Each dev As ManagementObject In results
+                Using dev
+                    Dim pnpId = WmiStr(dev, "PNPDeviceID")
+                    If Not IsRealPnPDevice(pnpId) Then Continue For
+                    If String.IsNullOrEmpty(WmiStr(dev, "Name")) Then Continue For
+
+                    Dim barramento = GetBusFromPNP(pnpId)
+                    If Not porBarramento.ContainsKey(barramento) Then porBarramento(barramento) = 0
+                    porBarramento(barramento) += 1
+
+                    Select Case GetDeviceState(dev)
+                        Case "NO_DRIVER" : totalSemDriver += 1
+                        Case "ERROR" : totalErro += 1
+                        Case Else : totalOk += 1
+                    End Select
+                End Using
+            Next
+        End Using
+
+        Dim totalGeral = porBarramento.Values.Sum()
+        AddDetail("Total de Dispositivos", totalGeral.ToString())
+        AddDetail("Funcionando OK", totalOk.ToString())
+        AddDetail("Sem Driver", totalSemDriver.ToString(), totalSemDriver > 0)
+        AddDetail("Com Erro", totalErro.ToString(), totalErro > 0)
+
+        For Each kv In porBarramento.OrderByDescending(Function(x) x.Value)
+            AddDetail($"Barramento: {kv.Key}", $"{kv.Value} dispositivo(s)")
+        Next
+    End Sub
+
+    ' ===== Resumo de um barramento específico (ex: USB, PCI/PCIe...) =====
+    Private Sub ShowPnpBusResumo(barramento As String)
+        LVdetalhes.Items.Clear()
+        currentIconKey = "bus"
+
+        Using searcher As New ManagementObjectSearcher(
+        "SELECT * FROM Win32_PnPEntity WHERE Present = TRUE AND PNPDeviceID IS NOT NULL"), results As ManagementObjectCollection = searcher.Get()
+            For Each dev As ManagementObject In results
+                Using dev
+                    Dim pnpId = WmiStr(dev, "PNPDeviceID")
+                    If Not IsRealPnPDevice(pnpId) Then Continue For
+
+                    Dim nome = WmiStr(dev, "Name")
+                    If String.IsNullOrEmpty(nome) Then Continue For
+
+                    If GetBusFromPNP(pnpId) <> barramento Then Continue For
+
+                    Dim estado = GetDeviceState(dev)
+                    Dim alerta = estado <> "OK"
+                    AddDetail(nome, If(estado = "OK", "Funcionando", If(estado = "NO_DRIVER", "Sem driver", "Erro")), alerta)
+                End Using
+            Next
+        End Using
+    End Sub
+
+    Public Sub ExportReport(completo As Boolean, Optional imprimir As Boolean = False, Optional customPath As String = Nothing)
+        ' Detecta se o aplicativo foi iniciado com o parâmetro de relatório automático
+        Dim isAuto As Boolean = My.Application.CommandLineArgs.Any(
+            Function(a) a.Equals("-report", StringComparison.OrdinalIgnoreCase) OrElse
+                        a.Equals("--report", StringComparison.OrdinalIgnoreCase))
         Dim filePath As String = ""
 
         ' --- 1. TRATAMENTO DE AVISOS ---
@@ -1096,7 +1933,10 @@ Public Class Form1
         End If
 
         ' --- 2. DEFINIÇÃO DO CAMINHO DO ARQUIVO ---
-        If isAuto Then
+        If customPath IsNot Nothing Then
+            ' FIX: suporte a --out <arquivo> no modo CLI
+            filePath = customPath
+        ElseIf isAuto Then
             ' Salva direto em Documentos sem perguntar ao usuário
             filePath = Path.Combine(My.Computer.FileSystem.SpecialDirectories.MyDocuments, "Relatorio_Auto.html")
         ElseIf imprimir Then
@@ -1149,9 +1989,16 @@ Public Class Form1
                         Process.Start(New ProcessStartInfo With {.FileName = filePath, .UseShellExecute = True})
                     End If
                 End If
+            Else
+                ' FIX: feedback no console quando rodando via CLI (não faz nada se não houver console anexado)
+                Console.WriteLine($"Relatório salvo em: {filePath}")
             End If
         Catch ex As Exception
-            If Not isAuto Then MessageBox.Show("Erro ao salvar: " & ex.Message)
+            If Not isAuto Then
+                MessageBox.Show("Erro ao salvar: " & ex.Message)
+            Else
+                Console.Error.WriteLine("Erro ao salvar: " & ex.Message)
+            End If
         End Try
     End Sub
 
@@ -1166,9 +2013,10 @@ Public Class Form1
         sb.AppendLine("<div class='card-body'>")
 
         sb.AppendLine("<ul class='list-unstyled mb-0'>")
-        sb.AppendLine($"<li><strong>Computador:</strong> {Environment.MachineName}</li>")
-        sb.AppendLine($"<li><strong>Usuário:</strong> {Environment.UserName}</li>")
-        sb.AppendLine($"<li><strong>Sistema Operacional:</strong> {My.Computer.Info.OSFullName}</li>")
+        ' FIX: HtmlEncode em todo valor que vai para o HTML (evita quebrar o layout com < > & em nomes/valores)
+        sb.AppendLine($"<li><strong>Computador:</strong> {WebUtility.HtmlEncode(Environment.MachineName)}</li>")
+        sb.AppendLine($"<li><strong>Usuário:</strong> {WebUtility.HtmlEncode(Environment.UserName)}</li>")
+        sb.AppendLine($"<li><strong>Sistema Operacional:</strong> {WebUtility.HtmlEncode(My.Computer.Info.OSFullName)}</li>")
         sb.AppendLine($"<li><strong>Arquitetura:</strong> {If(Environment.Is64BitOperatingSystem, "64-bit", "32-bit")}</li>")
         sb.AppendLine($"<li><strong>Data/Hora:</strong> {DateTime.Now:dd/MM/yyyy HH:mm:ss}</li>")
         sb.AppendLine("</ul>")
@@ -1211,10 +2059,12 @@ Public Class Form1
                 iconHtml = "<i class='bi bi-motherboard me-2' style='font-size:32px'></i>"
             Case "REDE"
                 iconHtml = "<i class='bi bi-wifi me-2' style='font-size:32px'></i>"
-            Case "BIOS"
+            Case "BIOS", "BIOS_INFO"
                 iconHtml = "<i class='bi bi-chip me-2' style='font-size:32px'></i>"
-            Case "TPM"
+            Case "TPM", "TPM_INFO"
                 iconHtml = "<i class='bi bi-lock me-2' style='font-size:32px'></i>"
+            Case "VIRT_INFO"
+                iconHtml = "<i class='bi bi-cpu me-2' style='font-size:32px'></i>"
             Case "STORAGE"
                 iconHtml = "<i class='bi bi-hdd me-2' style='font-size:32px'></i>"
             Case Else
@@ -1222,7 +2072,8 @@ Public Class Form1
         End Select
 
         sb.AppendLine("<div class=""mb-3"">")
-        sb.AppendLine("<h4>" & iconHtml & node.Text & "</h4>")
+        ' FIX: HtmlEncode no texto do nó (nomes de dispositivo podem ter caracteres especiais)
+        sb.AppendLine("<h4>" & iconHtml & WebUtility.HtmlEncode(node.Text) & "</h4>")
 
         ' ===== ListView detalhes se selecionado =====
         If LVdetalhes.Items.Count > 0 AndAlso node.IsSelected Then
@@ -1230,7 +2081,8 @@ Public Class Form1
             sb.AppendLine("<thead class=""table-dark""><tr><th>Propriedade</th><th>Valor</th></tr></thead>")
             sb.AppendLine("<tbody>")
             For Each item As ListViewItem In LVdetalhes.Items
-                sb.AppendLine($"<tr><td>{item.Text}</td><td>{item.SubItems(1).Text}</td></tr>")
+                ' FIX: HtmlEncode nos valores da tabela (evita quebrar o HTML com <, >, & vindos do WMI/registro)
+                sb.AppendLine($"<tr><td>{WebUtility.HtmlEncode(item.Text)}</td><td>{WebUtility.HtmlEncode(item.SubItems(1).Text)}</td></tr>")
             Next
             sb.AppendLine("</tbody>")
             sb.AppendLine("</table>")
