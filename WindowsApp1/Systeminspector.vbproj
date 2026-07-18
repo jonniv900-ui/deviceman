@@ -157,5 +157,20 @@
       <Name>backup</Name>
     </ProjectReference>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\shell32_135.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\shell32_16826.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\shell32_46.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\shell32_27.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\shell32_141.ico" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.VisualBasic.targets" />
 </Project>

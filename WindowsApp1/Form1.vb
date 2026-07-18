@@ -260,6 +260,7 @@ Public Class Form1
     End Sub
 
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+
         LVdetalhes.View = View.Details
         LVdetalhes.Columns.Add("Propriedade", 220)
         LVdetalhes.Columns.Add("Valor", 450)
@@ -268,6 +269,8 @@ Public Class Form1
         BuildTree()
         TVdispositivos.SelectedNode = TVdispositivos.Nodes(0)
         InitStatusBar()
+        CarregarMenuFerramentas()
+        ReplicarNoToolStrip()
 
 
     End Sub
@@ -2252,4 +2255,129 @@ Public Class Form1
     End Sub
 
 
+
+
+    Private Sub CarregarMenuFerramentas()
+        ' 1. REMOVE APENAS OS ITENS DINÂMICOS ANTIGOS
+        For i As Integer = ToolStripMenuItem1.DropDownItems.Count - 1 To 0 Step -1
+            Dim item As ToolStripItem = ToolStripMenuItem1.DropDownItems(i)
+
+            If item.Name.StartsWith("dyn_") Then
+                ToolStripMenuItem1.DropDownItems.RemoveAt(i)
+            End If
+        Next
+
+        Dim pastaTools As String = Path.Combine(Application.StartupPath, "tools")
+
+        If Directory.Exists(pastaTools) Then
+            Dim executaveis() As String = Directory.GetFiles(pastaTools, "*.exe")
+
+            If executaveis.Length > 0 Then
+                Dim separador As New ToolStripSeparator()
+                separador.Name = "dyn_separador"
+                ToolStripMenuItem1.DropDownItems.Add(separador)
+            End If
+
+            ' 2. ADICIONA OS NOVOS ITENS COM ÍCONE
+            For Each caminhoArquivo As String In executaveis
+                Dim nomeItem As String = Path.GetFileNameWithoutExtension(caminhoArquivo)
+                Dim novoItem As New ToolStripMenuItem(nomeItem)
+
+                novoItem.Name = "dyn_" & nomeItem
+                novoItem.Tag = caminhoArquivo
+
+                ' --- EXTRAÇÃO DO ÍCONE ---
+                Try
+                    ' Extrai o ícone associado ao arquivo executável
+                    Using iconeApp As Icon = Icon.ExtractAssociatedIcon(caminhoArquivo)
+                        If iconeApp IsNot Nothing Then
+                            ' Converte o ícone para Bitmap e atribui ao menu
+                            novoItem.Image = iconeApp.ToBitmap()
+                        End If
+                    End Using
+                Catch
+                    ' Se falhar ao extrair o ícone de algum executável específico, 
+                    ' o item apenas fica sem imagem, mas o app não quebra.
+                End Try
+                ' -------------------------
+
+                AddHandler novoItem.Click, AddressOf ItemMenu_Click
+                ToolStripMenuItem1.DropDownItems.Add(novoItem)
+            Next
+        End If
+    End Sub
+
+    ' Este é o método único que vai gerenciar o clique de QUALQUER executável adicionado
+    Private Sub ItemMenu_Click(sender As Object, e As EventArgs)
+        ' Descobre qual item foi clicado
+        Dim itemClicado As ToolStripMenuItem = CType(sender, ToolStripMenuItem)
+
+        ' Recupera o caminho do arquivo que salvamos na Tag
+        Dim caminhoExecutavel As String = itemClicado.Tag.ToString()
+
+        Try
+            ' Executa o arquivo
+            Process.Start(caminhoExecutavel)
+        Catch ex As Exception
+            MessageBox.Show("Não foi possível iniciar a ferramenta: " & ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+    End Sub
+    Private Sub ReplicarNoToolStrip()
+        ' 1. REMOVE APENAS OS BOTÕES DINÂMICOS ANTIGOS DO TOOLSTRIP
+        For i As Integer = ToolStrip1.Items.Count - 1 To 0 Step -1
+            Dim item As ToolStripItem = ToolStrip1.Items(i)
+
+            If item.Name IsNot Nothing AndAlso item.Name.StartsWith("dyn_") Then
+                ToolStrip1.Items.RemoveAt(i)
+            End If
+        Next
+
+        ' Opcional: Adiciona um separador se houver itens a replicar
+        If ToolStripMenuItem1.DropDownItems.Count > 0 Then
+            Dim sep As New ToolStripSeparator()
+            sep.Name = "dyn_separador_ts"
+            ToolStrip1.Items.Add(sep)
+        End If
+
+        ' 2. VARRE O MENU E CRIA OS BOTÕES APENAS COM ÍCONE
+        For Each itemMenu As ToolStripItem In ToolStripMenuItem1.DropDownItems
+
+            ' Ignora separadores
+            If TypeOf itemMenu Is ToolStripSeparator Then Continue For
+
+            Dim novoBotao As New ToolStripButton()
+
+            ' Configura para exibir APENAS o ícone
+            novoBotao.DisplayStyle = ToolStripItemDisplayStyle.Image
+            novoBotao.Image = itemMenu.Image
+
+            ' Coloca o texto apenas como ToolTip (aquela legendinha ao passar o mouse por cima)
+            novoBotao.ToolTipText = itemMenu.Text
+            novoBotao.Text = itemMenu.Text
+
+            ' TRUQUE MÁGICO: Guarda o objeto do menu inteiro na Tag do botão
+            novoBotao.Tag = itemMenu
+
+            ' Marca o nome para a limpeza posterior
+            novoBotao.Name = "dyn_btn_" & itemMenu.Name
+
+            ' Vincula ao novo evento de clique unificado
+            AddHandler novoBotao.Click, AddressOf BotaoToolStrip_Click
+
+            ToolStrip1.Items.Add(novoBotao)
+        Next
+    End Sub
+
+    ' Evento de clique que espelha o comportamento do menu original
+    Private Sub BotaoToolStrip_Click(sender As Object, e As EventArgs)
+        Dim botaoClicado As ToolStripButton = CType(sender, ToolStripButton)
+
+        ' Recupera o item de menu original associado a este botão
+        If botaoClicado.Tag IsNot Nothing AndAlso TypeOf botaoClicado.Tag Is ToolStripItem Then
+            Dim itemMenuOriginal As ToolStripItem = CType(botaoClicado.Tag, ToolStripItem)
+
+            ' Dispara o evento de clique do menu original exatamente como se o usuário tivesse ido lá e clicado nele
+            itemMenuOriginal.PerformClick()
+        End If
+    End Sub
 End Class

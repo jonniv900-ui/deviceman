@@ -37,20 +37,19 @@ Partial Class Form1
         Me.SairToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.ExibirToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.ToolStripMenuItem1 = New System.Windows.Forms.ToolStripMenuItem()
-        Me.GerenciadorDeRecursosToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
-        Me.GerenciadorDeProcessosToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
-        Me.RestaurarDriversToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
-        Me.RestaurarDriversToolStripMenuItem1 = New System.Windows.Forms.ToolStripMenuItem()
         Me.AjudaToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.ToolStrip1 = New System.Windows.Forms.ToolStrip()
-        Me.btnExportarHtml = New System.Windows.Forms.ToolStripButton()
-        Me.ToolStripDropDownButton1 = New System.Windows.Forms.ToolStripDropDownButton()
-        Me.RelatórioCompletoToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
-        Me.SomenteTelaSelecionadaToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.SplitContainer1 = New System.Windows.Forms.SplitContainer()
         Me.TVdispositivos = New System.Windows.Forms.TreeView()
         Me.ImageList1 = New System.Windows.Forms.ImageList(Me.components)
         Me.LVdetalhes = New System.Windows.Forms.ListView()
+        Me.ToolStripDropDownButton1 = New System.Windows.Forms.ToolStripDropDownButton()
+        Me.RelatórioCompletoToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.SomenteTelaSelecionadaToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.GerenciadorDeRecursosToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.GerenciadorDeProcessosToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.RestaurarDriversToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.RestaurarDriversToolStripMenuItem1 = New System.Windows.Forms.ToolStripMenuItem()
         Me.StatusStrip1.SuspendLayout()
         Me.MenuStrip1.SuspendLayout()
         Me.ToolStrip1.SuspendLayout()
@@ -147,30 +146,6 @@ Partial Class Form1
         Me.ToolStripMenuItem1.Size = New System.Drawing.Size(84, 20)
         Me.ToolStripMenuItem1.Text = "&Ferramentas"
         '
-        'GerenciadorDeRecursosToolStripMenuItem
-        '
-        Me.GerenciadorDeRecursosToolStripMenuItem.Name = "GerenciadorDeRecursosToolStripMenuItem"
-        Me.GerenciadorDeRecursosToolStripMenuItem.Size = New System.Drawing.Size(209, 22)
-        Me.GerenciadorDeRecursosToolStripMenuItem.Text = "Monitor de Recursos"
-        '
-        'GerenciadorDeProcessosToolStripMenuItem
-        '
-        Me.GerenciadorDeProcessosToolStripMenuItem.Name = "GerenciadorDeProcessosToolStripMenuItem"
-        Me.GerenciadorDeProcessosToolStripMenuItem.Size = New System.Drawing.Size(209, 22)
-        Me.GerenciadorDeProcessosToolStripMenuItem.Text = "Gerenciador de processos"
-        '
-        'RestaurarDriversToolStripMenuItem
-        '
-        Me.RestaurarDriversToolStripMenuItem.Name = "RestaurarDriversToolStripMenuItem"
-        Me.RestaurarDriversToolStripMenuItem.Size = New System.Drawing.Size(209, 22)
-        Me.RestaurarDriversToolStripMenuItem.Text = "Backup de drivers"
-        '
-        'RestaurarDriversToolStripMenuItem1
-        '
-        Me.RestaurarDriversToolStripMenuItem1.Name = "RestaurarDriversToolStripMenuItem1"
-        Me.RestaurarDriversToolStripMenuItem1.Size = New System.Drawing.Size(209, 22)
-        Me.RestaurarDriversToolStripMenuItem1.Text = "Restaurar drivers"
-        '
         'AjudaToolStripMenuItem
         '
         Me.AjudaToolStripMenuItem.Name = "AjudaToolStripMenuItem"
@@ -179,43 +154,12 @@ Partial Class Form1
         '
         'ToolStrip1
         '
-        Me.ToolStrip1.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.btnExportarHtml, Me.ToolStripDropDownButton1})
+        Me.ToolStrip1.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.ToolStripDropDownButton1})
         Me.ToolStrip1.Location = New System.Drawing.Point(0, 24)
         Me.ToolStrip1.Name = "ToolStrip1"
         Me.ToolStrip1.Size = New System.Drawing.Size(740, 25)
         Me.ToolStrip1.TabIndex = 2
         Me.ToolStrip1.Text = "ToolStrip1"
-        '
-        'btnExportarHtml
-        '
-        Me.btnExportarHtml.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image
-        Me.btnExportarHtml.Image = CType(resources.GetObject("btnExportarHtml.Image"), System.Drawing.Image)
-        Me.btnExportarHtml.ImageTransparentColor = System.Drawing.Color.Magenta
-        Me.btnExportarHtml.Name = "btnExportarHtml"
-        Me.btnExportarHtml.Size = New System.Drawing.Size(23, 22)
-        Me.btnExportarHtml.Text = "ToolStripButton1"
-        '
-        'ToolStripDropDownButton1
-        '
-        Me.ToolStripDropDownButton1.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image
-        Me.ToolStripDropDownButton1.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.RelatórioCompletoToolStripMenuItem, Me.SomenteTelaSelecionadaToolStripMenuItem})
-        Me.ToolStripDropDownButton1.Image = CType(resources.GetObject("ToolStripDropDownButton1.Image"), System.Drawing.Image)
-        Me.ToolStripDropDownButton1.ImageTransparentColor = System.Drawing.Color.Magenta
-        Me.ToolStripDropDownButton1.Name = "ToolStripDropDownButton1"
-        Me.ToolStripDropDownButton1.Size = New System.Drawing.Size(29, 22)
-        Me.ToolStripDropDownButton1.Text = "Exportar relatório"
-        '
-        'RelatórioCompletoToolStripMenuItem
-        '
-        Me.RelatórioCompletoToolStripMenuItem.Name = "RelatórioCompletoToolStripMenuItem"
-        Me.RelatórioCompletoToolStripMenuItem.Size = New System.Drawing.Size(208, 22)
-        Me.RelatórioCompletoToolStripMenuItem.Text = "Relatório completo"
-        '
-        'SomenteTelaSelecionadaToolStripMenuItem
-        '
-        Me.SomenteTelaSelecionadaToolStripMenuItem.Name = "SomenteTelaSelecionadaToolStripMenuItem"
-        Me.SomenteTelaSelecionadaToolStripMenuItem.Size = New System.Drawing.Size(208, 22)
-        Me.SomenteTelaSelecionadaToolStripMenuItem.Text = "Somente tela selecionada"
         '
         'SplitContainer1
         '
@@ -284,6 +228,56 @@ Partial Class Form1
         Me.LVdetalhes.TabIndex = 0
         Me.LVdetalhes.UseCompatibleStateImageBehavior = False
         '
+        'ToolStripDropDownButton1
+        '
+        Me.ToolStripDropDownButton1.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image
+        Me.ToolStripDropDownButton1.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.RelatórioCompletoToolStripMenuItem, Me.SomenteTelaSelecionadaToolStripMenuItem})
+        Me.ToolStripDropDownButton1.Image = Global.Systeminspector.My.Resources.Resources.shell32_141
+        Me.ToolStripDropDownButton1.ImageTransparentColor = System.Drawing.Color.Magenta
+        Me.ToolStripDropDownButton1.Name = "ToolStripDropDownButton1"
+        Me.ToolStripDropDownButton1.Size = New System.Drawing.Size(29, 22)
+        Me.ToolStripDropDownButton1.Text = "Exportar relatório"
+        '
+        'RelatórioCompletoToolStripMenuItem
+        '
+        Me.RelatórioCompletoToolStripMenuItem.Name = "RelatórioCompletoToolStripMenuItem"
+        Me.RelatórioCompletoToolStripMenuItem.Size = New System.Drawing.Size(208, 22)
+        Me.RelatórioCompletoToolStripMenuItem.Text = "Relatório completo"
+        '
+        'SomenteTelaSelecionadaToolStripMenuItem
+        '
+        Me.SomenteTelaSelecionadaToolStripMenuItem.Name = "SomenteTelaSelecionadaToolStripMenuItem"
+        Me.SomenteTelaSelecionadaToolStripMenuItem.Size = New System.Drawing.Size(208, 22)
+        Me.SomenteTelaSelecionadaToolStripMenuItem.Text = "Somente tela selecionada"
+        '
+        'GerenciadorDeRecursosToolStripMenuItem
+        '
+        Me.GerenciadorDeRecursosToolStripMenuItem.Image = Global.Systeminspector.My.Resources.Resources.shell32_16826
+        Me.GerenciadorDeRecursosToolStripMenuItem.Name = "GerenciadorDeRecursosToolStripMenuItem"
+        Me.GerenciadorDeRecursosToolStripMenuItem.Size = New System.Drawing.Size(209, 22)
+        Me.GerenciadorDeRecursosToolStripMenuItem.Text = "Monitor de Recursos"
+        '
+        'GerenciadorDeProcessosToolStripMenuItem
+        '
+        Me.GerenciadorDeProcessosToolStripMenuItem.Image = Global.Systeminspector.My.Resources.Resources.shell32_135
+        Me.GerenciadorDeProcessosToolStripMenuItem.Name = "GerenciadorDeProcessosToolStripMenuItem"
+        Me.GerenciadorDeProcessosToolStripMenuItem.Size = New System.Drawing.Size(209, 22)
+        Me.GerenciadorDeProcessosToolStripMenuItem.Text = "Gerenciador de processos"
+        '
+        'RestaurarDriversToolStripMenuItem
+        '
+        Me.RestaurarDriversToolStripMenuItem.Image = Global.Systeminspector.My.Resources.Resources.shell32_46
+        Me.RestaurarDriversToolStripMenuItem.Name = "RestaurarDriversToolStripMenuItem"
+        Me.RestaurarDriversToolStripMenuItem.Size = New System.Drawing.Size(209, 22)
+        Me.RestaurarDriversToolStripMenuItem.Text = "Backup de drivers"
+        '
+        'RestaurarDriversToolStripMenuItem1
+        '
+        Me.RestaurarDriversToolStripMenuItem1.Image = Global.Systeminspector.My.Resources.Resources.shell32_27
+        Me.RestaurarDriversToolStripMenuItem1.Name = "RestaurarDriversToolStripMenuItem1"
+        Me.RestaurarDriversToolStripMenuItem1.Size = New System.Drawing.Size(209, 22)
+        Me.RestaurarDriversToolStripMenuItem1.Text = "Restaurar drivers"
+        '
         'Form1
         '
         Me.AutoScaleDimensions = New System.Drawing.SizeF(6.0!, 13.0!)
@@ -314,7 +308,6 @@ Partial Class Form1
     Friend WithEvents StatusStrip1 As StatusStrip
     Friend WithEvents MenuStrip1 As MenuStrip
     Friend WithEvents ToolStrip1 As ToolStrip
-    Friend WithEvents btnExportarHtml As ToolStripButton
     Friend WithEvents SplitContainer1 As SplitContainer
     Friend WithEvents TVdispositivos As TreeView
     Friend WithEvents LVdetalhes As ListView
