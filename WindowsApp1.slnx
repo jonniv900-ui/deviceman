@@ -1,4 +1,6 @@
 <Solution>
+  <Project Path="bootrep/BootRepair.csproj" />
+  <Project Path="partman/PartitionManager.csproj" />
   <Project Path="restore/restoreapp.vbproj" Id="90c8c8ca-6fb0-4488-a208-7ce8f73c0605" />
   <Project Path="sysfetch/sysfetch.vbproj" Id="049ddf48-1933-4b82-899b-82baf7223695" />
   <Project Path="sysimplement/sysimplement.csproj" Id="aa264448-c567-47fc-b846-675ab347934a" />
