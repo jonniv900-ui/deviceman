@@ -14,6 +14,7 @@ Imports System.Diagnostics
 Imports System.Linq
 Imports System.Drawing
 Imports System.Net
+Imports System.Xml.Linq
 
 
 
@@ -353,6 +354,10 @@ Public Class Form1
                 ShowSistemaResumo() : tituloCategoria = "Sistema Operacional"
             Case "dispositivos"
                 ShowDispositivosResumo() : tituloCategoria = "Dispositivos"
+            Case "storage", "armazenamento", "discos"
+                ShowStorageResumo() : tituloCategoria = "Armazenamento"
+            Case "battery", "bateria"
+                ShowBattery() : tituloCategoria = "Bateria"
             Case "resumo", "all", "systeminfo"
                 ShowResumo() : tituloCategoria = "Resumo do Sistema"
             Case "biosinfo", "bios"
@@ -415,6 +420,8 @@ Public Class Form1
         Console.WriteLine("  --pnp                     Resumo de dispositivos Plug and Play")
         Console.WriteLine("  --os                      Resumo do sistema operacional")
         Console.WriteLine("  --dispositivos            Resumo geral de hardware")
+        Console.WriteLine("  --storage, --armazenamento  Resumo dos discos")
+        Console.WriteLine("  --battery, --bateria      Status e saúde da bateria (se houver)")
         Console.WriteLine()
         Console.WriteLine("Relatório completo:")
         Console.WriteLine("  --report                    Gera o relatório completo (HTML) em Documentos")
@@ -663,6 +670,42 @@ Public Class Form1
             Next
         End Using
 
+        ' ===== ARMAZENAMENTO =====
+        Dim storageNode = rootDisp.Nodes.Add("Armazenamento")
+        storageNode.Tag = "STORAGE"
+        storageNode.ImageKey = "storage"
+        storageNode.SelectedImageKey = "storage"
+
+        Using searcher As New ManagementObjectSearcher("SELECT DeviceID, Model FROM Win32_DiskDrive"), results As ManagementObjectCollection = searcher.Get()
+            For Each d As ManagementObject In results
+                Using d
+                    Dim modelo = WmiStr(d, "Model", "Disco desconhecido")
+                    Dim n = storageNode.Nodes.Add(modelo)
+                    n.Tag = WmiStr(d, "DeviceID")   ' ex: \\.\PHYSICALDRIVE0
+                    n.ImageKey = "storage"
+                    n.SelectedImageKey = "storage"
+                End Using
+            Next
+        End Using
+
+        ' ===== BATERIA (só cria o nó se o equipamento realmente tiver bateria) =====
+        Dim temBateria As Boolean = False
+        Using searcher As New ManagementObjectSearcher("SELECT DeviceID FROM Win32_Battery"), results As ManagementObjectCollection = searcher.Get()
+            For Each b As ManagementObject In results
+                Using b
+                    temBateria = True
+                End Using
+                Exit For
+            Next
+        End Using
+
+        If temBateria Then
+            Dim batNode = rootDisp.Nodes.Add("Bateria")
+            batNode.Tag = "BATTERY"
+            batNode.ImageKey = "info"
+            batNode.SelectedImageKey = "info"
+        End If
+
         ' ===== DISPOSITIVOS PnP =====
         Dim pnpRoot = rootDisp.Nodes.Add("Dispositivos Plug and Play")
         pnpRoot.Tag = "PNP"
@@ -814,6 +857,11 @@ Public Class Form1
             Case "UPDATES"
                 ShowSystemUpdates()
 
+            Case "STORAGE"
+                ShowStorageResumo()
+
+            Case "BATTERY"
+                ShowBattery()
 
             Case Else
                 ' PnP → Tag contém DeviceID
@@ -826,6 +874,11 @@ Public Class Form1
                 ' Rede → clique em adaptador específico
                 If CStr(e.Node.Parent?.Tag) = "REDE" Then
                     ShowNetworkAdapter(e.Node.Tag.ToString())
+                End If
+
+                ' Armazenamento → clique em disco específico
+                If CStr(e.Node.Parent?.Tag) = "STORAGE" Then
+                    ShowDisk(e.Node.Tag.ToString())
                 End If
         End Select
     End Sub
@@ -1586,26 +1639,257 @@ Public Class Form1
         End Using
 
     End Sub
+    ' ===== Resumo do nó raiz "Armazenamento" =====
+    Private Sub ShowStorageResumo()
+        currentIconKey = "storage"
+
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_DiskDrive"), results As ManagementObjectCollection = searcher.Get()
+            For Each d As ManagementObject In results
+                Using d
+                    Dim tipo = DiskType(d)
+                    Dim status = WmiStr(d, "Status")
+                    AddDetail($"Disco ({tipo})", $"{WmiStr(d, "Model")} — {FormatSize(WmiLng(d, "Size"))} — {status}", status <> "OK")
+                End Using
+            Next
+        End Using
+    End Sub
+
     Private Sub ShowDisk(deviceId As String)
         currentIconKey = "storage"
 
         Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_DiskDrive"), results As ManagementObjectCollection = searcher.Get()
             For Each d As ManagementObject In results
                 Using d
-                    If WmiStr(d, "DeviceID") = deviceId Then
-                        ' FIX: acesso seguro em vez de d("Status").ToString() direto
-                        Dim status = WmiStr(d, "Status")
-                        Dim alerta = status <> "OK"
+                    If WmiStr(d, "DeviceID") <> deviceId Then Continue For
 
-                        AddDetail("Modelo", WmiStr(d, "Model"), alerta)
-                        AddDetail("Interface", WmiStr(d, "InterfaceType"))
-                        AddDetail("Capacidade", FormatSize(WmiLng(d, "Size")))
-                        AddDetail("SMART", status, alerta)
-                    End If
+                    ' FIX: acesso seguro em vez de d("Status").ToString() direto
+                    Dim status = WmiStr(d, "Status")
+                    Dim alerta = status <> "OK"
+
+                    AddDetail("Modelo", WmiStr(d, "Model"))
+                    AddDetail("Fabricante", WmiStr(d, "Manufacturer"))
+                    AddDetail("Interface", WmiStr(d, "InterfaceType"))
+                    AddDetail("Tipo de Mídia", DiskType(d))
+                    AddDetail("Capacidade", FormatSize(WmiLng(d, "Size")))
+                    AddDetail("Número de Partições", WmiStr(d, "Partitions"))
+                    AddDetail("Número de Série", WmiStr(d, "SerialNumber").Trim())
+                    AddDetail("Firmware", WmiStr(d, "FirmwareRevision"))
+                    AddDetail("Status", status, alerta)
+
+                    ' ===== SMART detalhado (melhor esforço — nem todo driver/controlador expõe) =====
+                    AddSmartDetails(WmiStr(d, "PNPDeviceID"))
+
+                    Exit For
                 End Using
             Next
         End Using
 
+    End Sub
+
+    ' ===== SMART detalhado via root\WMI (MSStorageDriver_FailurePredict*) =====
+    ' Observação: exige que o driver de armazenamento exponha essas classes (comum em discos
+    ' SATA/AHCI mais antigos; muitos NVMe e controladores RAID/RST não expõem por essa via) e,
+    ' em alguns sistemas, executar o aplicativo como Administrador para conseguir ler os dados.
+    Private Sub AddSmartDetails(pnpId As String)
+        If String.IsNullOrEmpty(pnpId) Then
+            AddDetail("SMART", "Indisponível (PNPDeviceID não encontrado)", True)
+            Return
+        End If
+
+        Try
+            Dim scope As New ManagementScope("root\WMI")
+            scope.Connect()
+
+            ' ----- Status geral de previsão de falha -----
+            Dim encontrouStatus = False
+            Using searcher As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT * FROM MSStorageDriver_FailurePredictStatus")),
+                  results As ManagementObjectCollection = searcher.Get()
+                For Each s As ManagementObject In results
+                    Using s
+                        If Not SmartInstanceMatches(WmiStr(s, "InstanceName"), pnpId) Then Continue For
+
+                        encontrouStatus = True
+                        Dim predizFalha = WmiBool(s, "PredictFailure")
+                        AddDetail("SMART — Previsão de Falha", If(predizFalha, "ALERTA: falha iminente", "Saudável"), predizFalha)
+                    End Using
+                Next
+            End Using
+
+            If Not encontrouStatus Then
+                AddDetail("SMART", "Não exposto pelo driver/controlador deste disco", True)
+                Return
+            End If
+
+            ' ----- Atributos SMART brutos (valores/raw por atributo) -----
+            Using searcher As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT * FROM MSStorageDriver_FailurePredictData")),
+                  results As ManagementObjectCollection = searcher.Get()
+                For Each d As ManagementObject In results
+                    Using d
+                        If Not SmartInstanceMatches(WmiStr(d, "InstanceName"), pnpId) Then Continue For
+
+                        Dim vendorData = TryCast(d("VendorSpecific"), Byte())
+                        If vendorData IsNot Nothing Then
+                            AppendSmartAttributes(vendorData)
+                        End If
+                    End Using
+                Next
+            End Using
+
+        Catch ex As Exception
+            AddDetail("SMART", "Não disponível: " & ex.Message, True)
+        End Try
+    End Sub
+
+    ' O InstanceName do driver de armazenamento normalmente contém (ou é igual a) o PNPDeviceID do disco
+    Private Function SmartInstanceMatches(instanceName As String, pnpId As String) As Boolean
+        If String.IsNullOrEmpty(instanceName) OrElse String.IsNullOrEmpty(pnpId) Then Return False
+        Return instanceName.IndexOf(pnpId, StringComparison.OrdinalIgnoreCase) >= 0 OrElse
+               pnpId.IndexOf(instanceName.TrimEnd("_"c), StringComparison.OrdinalIgnoreCase) >= 0
+    End Function
+
+    ' Decodifica o bloco bruto de atributos SMART (formato ATA padrão: 12 bytes por atributo a partir do offset 2)
+    Private Sub AppendSmartAttributes(data As Byte())
+        Dim nomes As New Dictionary(Of Integer, String) From {
+            {1, "Taxa de Erro de Leitura"},
+            {5, "Setores Realocados"},
+            {9, "Horas Ligado"},
+            {12, "Ciclos de Liga/Desliga"},
+            {194, "Temperatura"},
+            {197, "Setores Pendentes"},
+            {198, "Erros Irrecuperáveis"}
+        }
+
+        Dim offset = 2
+        While offset + 12 <= data.Length
+            Dim attrId = CInt(data(offset))
+
+            If attrId <> 0 Then
+                Dim valorAtual = CInt(data(offset + 3))
+
+                Dim rawValue As Long = 0
+                For i = 0 To 5
+                    rawValue = rawValue Or (CLng(data(offset + 5 + i)) << (i * 8))
+                Next
+
+                Dim nome = If(nomes.ContainsKey(attrId), nomes(attrId), $"Atributo #{attrId}")
+                Dim alerta = (attrId = 5 OrElse attrId = 197 OrElse attrId = 198) AndAlso rawValue > 0
+
+                AddDetail($"SMART: {nome}", $"Valor: {valorAtual} | Raw: {rawValue}", alerta)
+            End If
+
+            offset += 12
+        End While
+    End Sub
+
+    ' ===== Bateria =====
+    Private Sub ShowBattery()
+        currentIconKey = "info"
+
+        Dim achouBateria = False
+
+        Using searcher As New ManagementObjectSearcher("SELECT * FROM Win32_Battery"), results As ManagementObjectCollection = searcher.Get()
+            For Each b As ManagementObject In results
+                Using b
+                    achouBateria = True
+
+                    Dim statusCode = WmiInt(b, "BatteryStatus")
+                    Dim statusTxt = BatteryStatusText(statusCode)
+                    Dim cargaPercent = WmiInt(b, "EstimatedChargeRemaining")
+                    Dim alertaCarga = cargaPercent > 0 AndAlso cargaPercent <= 15
+                    Dim alertaStatus = statusCode = 4 OrElse statusCode = 5 ' Baixa / Crítica
+
+                    AddDetail("Nome", WmiStr(b, "Name"))
+                    AddDetail("Status", statusTxt, alertaStatus)
+                    AddDetail("Carga Estimada", $"{cargaPercent}%", alertaCarga)
+
+                    Dim tempoRestante = WmiInt(b, "EstimatedRunTime")
+                    AddDetail("Tempo Restante Estimado",
+                          If(tempoRestante > 0 AndAlso tempoRestante < 71582, $"{tempoRestante} minutos", "Calculando / Carregando"))
+
+                    AddDetail("Voltagem de Design", $"{WmiInt(b, "DesignVoltage")} mV")
+                End Using
+                Exit For
+            Next
+        End Using
+
+        If Not achouBateria Then
+            AddDetail("Bateria", "Nenhuma bateria detectada neste equipamento (desktop ou não reportada pelo Windows)")
+            Return
+        End If
+
+        ' ===== Saúde da bateria (capacidade de projeto vs. capacidade máxima atual) via "powercfg /batteryreport" =====
+        AppendBatteryHealthFromReport()
+    End Sub
+
+    Private Function BatteryStatusText(code As Integer) As String
+        Select Case code
+            Case 1 : Return "Descarregando"
+            Case 2 : Return "Conectada na tomada (sem bateria instalada)"
+            Case 3 : Return "Totalmente carregada"
+            Case 4 : Return "Baixa"
+            Case 5 : Return "Crítica"
+            Case 6 : Return "Carregando"
+            Case 7 : Return "Carregando — carga alta"
+            Case 8 : Return "Carregando — carga baixa"
+            Case 9 : Return "Carregando — carga crítica"
+            Case 10 : Return "Desconhecido"
+            Case 11 : Return "Em espera parcial"
+            Case Else : Return "Desconhecido"
+        End Select
+    End Function
+
+    ' Gera o relatório nativo do Windows (powercfg /batteryreport) num arquivo temporário,
+    ' extrai capacidade de projeto x capacidade máxima atual, e apaga o arquivo em seguida.
+    Private Sub AppendBatteryHealthFromReport()
+        Dim tempPath = Path.Combine(Path.GetTempPath(), $"battery_report_{Guid.NewGuid():N}.xml")
+
+        Try
+            Dim psi As New ProcessStartInfo("powercfg", $"/batteryreport /xml /output ""{tempPath}""") With {
+                .UseShellExecute = False,
+                .CreateNoWindow = True,
+                .RedirectStandardOutput = True,
+                .RedirectStandardError = True
+            }
+
+            Using p = Process.Start(psi)
+                p.WaitForExit(5000)
+            End Using
+
+            If Not File.Exists(tempPath) Then
+                AddDetail("Saúde da Bateria", "Não foi possível gerar o relatório (powercfg)")
+                Return
+            End If
+
+            Dim xml = XDocument.Load(tempPath)
+            Dim ns = xml.Root.GetDefaultNamespace()
+
+            Dim designCap = xml.Descendants(ns + "DesignCapacity").FirstOrDefault()?.Value
+            Dim fullCap = xml.Descendants(ns + "FullChargeCapacity").FirstOrDefault()?.Value
+
+            If designCap IsNot Nothing AndAlso fullCap IsNot Nothing Then
+                Dim design As Double
+                Dim full As Double
+                If Double.TryParse(designCap, NumberStyles.Any, CultureInfo.InvariantCulture, design) AndAlso
+                   Double.TryParse(fullCap, NumberStyles.Any, CultureInfo.InvariantCulture, full) AndAlso
+                   design > 0 Then
+
+                    Dim saudePercent = full / design * 100
+
+                    AddDetail("Capacidade de Projeto", $"{design:N0} mWh")
+                    AddDetail("Capacidade Máxima Atual", $"{full:N0} mWh")
+                    AddDetail("Saúde da Bateria", $"{saudePercent:0.0}%", saudePercent < 80)
+                End If
+            End If
+
+        Catch ex As Exception
+            AddDetail("Saúde da Bateria", "Não disponível: " & ex.Message)
+        Finally
+            Try
+                If File.Exists(tempPath) Then File.Delete(tempPath)
+            Catch
+                ' Se não conseguir apagar o temporário, ignora — não é crítico
+            End Try
+        End Try
     End Sub
     Private Sub AddDetail(propriedade As String, valor As String, Optional alerta As Boolean = False)
         Dim item As New ListViewItem(propriedade)
@@ -1624,6 +1908,92 @@ Public Class Form1
 
     Private Function FormatSize(bytes As Long) As String
         Return (bytes / 1024 / 1024 / 1024).ToString("0.00") & " GB"
+    End Function
+
+    ' ===== Recursos embutidos (CSS do relatório) =====
+    Private Function GetEmbeddedResourceText(resourceNameEnding As String) As String
+        Dim asm = Reflection.Assembly.GetExecutingAssembly()
+
+        Dim resourceName = asm.GetManifestResourceNames().
+            FirstOrDefault(Function(n) n.EndsWith(resourceNameEnding, StringComparison.OrdinalIgnoreCase))
+
+        If resourceName Is Nothing Then Return ""
+
+        Using stream = asm.GetManifestResourceStream(resourceName)
+            If stream Is Nothing Then Return ""
+            Using reader As New StreamReader(stream)
+                Return reader.ReadToEnd()
+            End Using
+        End Using
+    End Function
+
+    ' ===== Ícones SVG genéricos para o relatório HTML (sem depender de internet/marcas de terceiros) =====
+    Private Function GetIconSvg(tag As String) As String
+        Select Case tag
+            Case "CPU", "VIRT_INFO"
+                Return "<svg width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' class='me-2'>" &
+                       "<rect x='6' y='6' width='12' height='12' rx='1'/>" &
+                       "<path d='M9 2v3M12 2v3M15 2v3M9 19v3M12 19v3M15 19v3M2 9h3M2 12h3M2 15h3M19 9h3M19 12h3M19 15h3'/>" &
+                       "</svg>"
+
+            Case "RAM", "RAM_SLOT"
+                Return "<svg width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' class='me-2'>" &
+                       "<rect x='3' y='7' width='18' height='10' rx='1'/>" &
+                       "<path d='M6 17v2M9 17v2M12 17v2M15 17v2M18 17v2'/>" &
+                       "</svg>"
+
+            Case "GPU", "GPU_ITEM"
+                Return "<svg width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' class='me-2'>" &
+                       "<rect x='2' y='6' width='20' height='9' rx='1'/>" &
+                       "<circle cx='7' cy='10.5' r='2'/>" &
+                       "<path d='M2 18h6'/>" &
+                       "</svg>"
+
+            Case "MB"
+                Return "<svg width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' class='me-2'>" &
+                       "<rect x='4' y='4' width='16' height='16' rx='1'/>" &
+                       "<circle cx='9' cy='9' r='1.5'/><circle cx='15' cy='9' r='1.5'/>" &
+                       "<path d='M4 14h16M9 4v-2M15 4v-2M9 22v-2M15 22v-2'/>" &
+                       "</svg>"
+
+            Case "REDE"
+                Return "<svg width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' class='me-2'>" &
+                       "<path d='M4 9a12 12 0 0 1 16 0'/><path d='M7 12.5a7.5 7.5 0 0 1 10 0'/>" &
+                       "<path d='M10.5 16a3 3 0 0 1 3 0'/><circle cx='12' cy='19' r='1'/>" &
+                       "</svg>"
+
+            Case "BIOS", "BIOS_INFO"
+                Return "<svg width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' class='me-2'>" &
+                       "<rect x='5' y='5' width='14' height='14' rx='1'/>" &
+                       "<rect x='9' y='9' width='6' height='6'/>" &
+                       "<path d='M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3'/>" &
+                       "</svg>"
+
+            Case "TPM", "TPM_INFO"
+                Return "<svg width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' class='me-2'>" &
+                       "<rect x='5' y='11' width='14' height='9' rx='1'/>" &
+                       "<path d='M8 11V7a4 4 0 0 1 8 0v4'/>" &
+                       "</svg>"
+
+            Case "STORAGE"
+                Return "<svg width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' class='me-2'>" &
+                       "<ellipse cx='12' cy='6' rx='8' ry='3'/>" &
+                       "<path d='M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6'/>" &
+                       "<path d='M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3'/>" &
+                       "</svg>"
+
+            Case "BATTERY"
+                Return "<svg width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' class='me-2'>" &
+                       "<rect x='2' y='7' width='18' height='10' rx='1.5'/>" &
+                       "<path d='M22 10v4'/>" &
+                       "<path d='M6 9v6'/>" &
+                       "</svg>"
+
+            Case Else
+                Return "<svg width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' class='me-2'>" &
+                       "<path d='M6 2h9l3 3v17H6z'/><path d='M15 2v3h3'/>" &
+                       "</svg>"
+        End Select
     End Function
 
 
@@ -1958,7 +2328,9 @@ Public Class Form1
         Dim sb As New StringBuilder()
         sb.AppendLine("<!DOCTYPE html><html lang=""pt-br""><head>")
         sb.AppendLine("<meta charset=""UTF-8"">")
-        sb.AppendLine("<link href=""https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"" rel=""stylesheet"">")
+        sb.AppendLine("<style>")
+        sb.AppendLine(GetEmbeddedResourceText("bootstrap.min.css"))
+        sb.AppendLine("</style>")
         sb.AppendLine("<title>Relatório de Sistema</title></head><body class=""p-3"">")
         sb.AppendLine("<div class=""container"">")
 
@@ -2037,41 +2409,27 @@ Public Class Form1
 
         Select Case node.Tag
             Case "CPU"
-                ' Detectar fabricante no LVdetalhes
-                Dim fabricante As String = ""
-                For Each item As ListViewItem In LVdetalhes.Items
-                    If item.Text.ToLower().Contains("fabricante") Then
-                        fabricante = item.SubItems(1).Text.ToLower()
-                        Exit For
-                    End If
-                Next
-
-                If fabricante.Contains("intel") Then
-                    iconHtml = "<img src='https://images.seeklogo.com/logo-png/22/2/intel-logo-png_seeklogo-226413.png' width='32' height='32' class='me-2'>"
-                ElseIf fabricante.Contains("amd") Then
-                    iconHtml = "<img src='https://images.seeklogo.com/logo-png/0/2/amd-logo-png_seeklogo-7779.png' width='32' height='32' class='me-2'>"
-                Else
-                    iconHtml = "<i class='bi bi-cpu me-2' style='font-size:32px'></i>"
-                End If
-
+                iconHtml = GetIconSvg("CPU")
             Case "RAM", "RAM_SLOT"
-                iconHtml = "<i class='bi bi-memory me-2' style='font-size:32px'></i>"
+                iconHtml = GetIconSvg("RAM")
             Case "GPU", "GPU_ITEM"
-                iconHtml = "<i class='bi bi-gpu-card me-2' style='font-size:32px'></i>"
+                iconHtml = GetIconSvg("GPU")
             Case "MB"
-                iconHtml = "<i class='bi bi-motherboard me-2' style='font-size:32px'></i>"
+                iconHtml = GetIconSvg("MB")
             Case "REDE"
-                iconHtml = "<i class='bi bi-wifi me-2' style='font-size:32px'></i>"
+                iconHtml = GetIconSvg("REDE")
             Case "BIOS", "BIOS_INFO"
-                iconHtml = "<i class='bi bi-chip me-2' style='font-size:32px'></i>"
+                iconHtml = GetIconSvg("BIOS")
             Case "TPM", "TPM_INFO"
-                iconHtml = "<i class='bi bi-lock me-2' style='font-size:32px'></i>"
+                iconHtml = GetIconSvg("TPM")
             Case "VIRT_INFO"
-                iconHtml = "<i class='bi bi-cpu me-2' style='font-size:32px'></i>"
+                iconHtml = GetIconSvg("VIRT_INFO")
             Case "STORAGE"
-                iconHtml = "<i class='bi bi-hdd me-2' style='font-size:32px'></i>"
+                iconHtml = GetIconSvg("STORAGE")
+            Case "BATTERY"
+                iconHtml = GetIconSvg("BATTERY")
             Case Else
-                iconHtml = "<i class='bi bi-file-earmark-text me-2' style='font-size:32px'></i>"
+                iconHtml = GetIconSvg("")
         End Select
 
         sb.AppendLine("<div class=""mb-3"">")
@@ -2379,5 +2737,15 @@ Public Class Form1
             ' Dispara o evento de clique do menu original exatamente como se o usuário tivesse ido lá e clicado nele
             itemMenuOriginal.PerformClick()
         End If
+    End Sub
+
+    Private Sub BarraDeFerramentasToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles BarraDeFerramentasToolStripMenuItem.Click
+        ToolStrip1.Visible = BarraDeFerramentasToolStripMenuItem.Checked
+
+    End Sub
+
+    Private Sub ListaLateraToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles ListaLateraToolStripMenuItem.Click
+        SplitContainer1.Panel1.Visible = BarraDeFerramentasToolStripMenuItem.Checked
+
     End Sub
 End Class

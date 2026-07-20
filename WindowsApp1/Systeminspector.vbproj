@@ -104,14 +104,12 @@
       <DependentUpon>Settings.settings</DependentUpon>
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
     </Compile>
+    <Compile Include="ProcessSnapshotService.vb" />
     <Compile Include="sysres.Designer.vb">
       <DependentUpon>sysres.vb</DependentUpon>
     </Compile>
     <Compile Include="sysres.vb">
       <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="tskmgr.Designer.vb">
-      <DependentUpon>tskmgr.vb</DependentUpon>
     </Compile>
     <Compile Include="tskmgr.vb">
       <SubType>Form</SubType>
@@ -129,9 +127,6 @@
     </EmbeddedResource>
     <EmbeddedResource Include="sysres.resx">
       <DependentUpon>sysres.vb</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="tskmgr.resx">
-      <DependentUpon>tskmgr.vb</DependentUpon>
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
@@ -171,6 +166,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shell32_141.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\bootstrap.min.css" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.VisualBasic.targets" />
 </Project>

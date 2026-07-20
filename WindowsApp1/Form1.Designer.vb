@@ -50,6 +50,8 @@ Partial Class Form1
         Me.GerenciadorDeProcessosToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.RestaurarDriversToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.RestaurarDriversToolStripMenuItem1 = New System.Windows.Forms.ToolStripMenuItem()
+        Me.BarraDeFerramentasToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.ListaLateraToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.StatusStrip1.SuspendLayout()
         Me.MenuStrip1.SuspendLayout()
         Me.ToolStrip1.SuspendLayout()
@@ -93,7 +95,7 @@ Partial Class Form1
         '
         Me.RelatóriosToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.CompletoToolStripMenuItem, Me.TelaSelecionadaToolStripMenuItem})
         Me.RelatóriosToolStripMenuItem.Name = "RelatóriosToolStripMenuItem"
-        Me.RelatóriosToolStripMenuItem.Size = New System.Drawing.Size(126, 22)
+        Me.RelatóriosToolStripMenuItem.Size = New System.Drawing.Size(180, 22)
         Me.RelatóriosToolStripMenuItem.Text = "Relatórios"
         '
         'CompletoToolStripMenuItem
@@ -112,7 +114,7 @@ Partial Class Form1
         '
         Me.ImprimirToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.RelatórioCompletoToolStripMenuItem1, Me.SomentePáginaSelecionadaToolStripMenuItem})
         Me.ImprimirToolStripMenuItem.Name = "ImprimirToolStripMenuItem"
-        Me.ImprimirToolStripMenuItem.Size = New System.Drawing.Size(126, 22)
+        Me.ImprimirToolStripMenuItem.Size = New System.Drawing.Size(180, 22)
         Me.ImprimirToolStripMenuItem.Text = "&Imprimir"
         '
         'RelatórioCompletoToolStripMenuItem1
@@ -130,11 +132,12 @@ Partial Class Form1
         'SairToolStripMenuItem
         '
         Me.SairToolStripMenuItem.Name = "SairToolStripMenuItem"
-        Me.SairToolStripMenuItem.Size = New System.Drawing.Size(126, 22)
+        Me.SairToolStripMenuItem.Size = New System.Drawing.Size(180, 22)
         Me.SairToolStripMenuItem.Text = "&Sair"
         '
         'ExibirToolStripMenuItem
         '
+        Me.ExibirToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.BarraDeFerramentasToolStripMenuItem, Me.ListaLateraToolStripMenuItem})
         Me.ExibirToolStripMenuItem.Name = "ExibirToolStripMenuItem"
         Me.ExibirToolStripMenuItem.Size = New System.Drawing.Size(48, 20)
         Me.ExibirToolStripMenuItem.Text = "&Exibir"
@@ -278,6 +281,22 @@ Partial Class Form1
         Me.RestaurarDriversToolStripMenuItem1.Size = New System.Drawing.Size(209, 22)
         Me.RestaurarDriversToolStripMenuItem1.Text = "Restaurar drivers"
         '
+        'BarraDeFerramentasToolStripMenuItem
+        '
+        Me.BarraDeFerramentasToolStripMenuItem.Checked = True
+        Me.BarraDeFerramentasToolStripMenuItem.CheckState = System.Windows.Forms.CheckState.Checked
+        Me.BarraDeFerramentasToolStripMenuItem.Name = "BarraDeFerramentasToolStripMenuItem"
+        Me.BarraDeFerramentasToolStripMenuItem.Size = New System.Drawing.Size(183, 22)
+        Me.BarraDeFerramentasToolStripMenuItem.Text = "Barra de ferramentas"
+        '
+        'ListaLateraToolStripMenuItem
+        '
+        Me.ListaLateraToolStripMenuItem.Checked = True
+        Me.ListaLateraToolStripMenuItem.CheckState = System.Windows.Forms.CheckState.Checked
+        Me.ListaLateraToolStripMenuItem.Name = "ListaLateraToolStripMenuItem"
+        Me.ListaLateraToolStripMenuItem.Size = New System.Drawing.Size(183, 22)
+        Me.ListaLateraToolStripMenuItem.Text = "Lista lateral"
+        '
         'Form1
         '
         Me.AutoScaleDimensions = New System.Drawing.SizeF(6.0!, 13.0!)
@@ -331,4 +350,6 @@ Partial Class Form1
     Friend WithEvents SairToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents RelatórioCompletoToolStripMenuItem1 As ToolStripMenuItem
     Friend WithEvents SomentePáginaSelecionadaToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents BarraDeFerramentasToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents ListaLateraToolStripMenuItem As ToolStripMenuItem
 End Class
